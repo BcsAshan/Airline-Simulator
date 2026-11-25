@@ -11,6 +11,7 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
     <PackageReference Include="FluentAssertions" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
@@ -23,5 +24,6 @@
     <ProjectReference Include="..\..\src\Services\Inventory\Pss.Inventory.Api\Pss.Inventory.Api.csproj" />
     <ProjectReference Include="..\..\src\Services\Pricing\Pss.Pricing.Api\Pss.Pricing.Api.csproj" />
     <ProjectReference Include="..\..\src\Services\Payment\Pss.Payment.Api\Pss.Payment.Api.csproj" />
+    <ProjectReference Include="..\..\src\Services\Seat\Pss.Seat.Api\Pss.Seat.Api.csproj" />
   </ItemGroup>
 </Project>

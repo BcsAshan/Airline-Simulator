@@ -24,6 +24,7 @@ public sealed class CommitService(
     IPublishEndpoint publisher,
     IInventoryClient inventory,
     IPaymentClient payments,
+    ISeatClient seats,
     DraftStore drafts,
     BookingCommands commands,
     IConfiguration configuration,
@@ -59,6 +60,8 @@ public sealed class CommitService(
         var record = isNew ? await CreatePlaceholderAsync(session.AgentCode, session.ApplicationName, now, ct) : await LoadRecordAsync(draft, ct);
 
         var approvedThisCommit = new List<long>();
+        List<long>? seatIdsConfirmed = null;
+        var seatRefs = SeatDraftOps.SeatRefs(booking);
         try
         {
             // ---- 3. authorise payments ---------------------------------------------------------------
@@ -94,7 +97,20 @@ public sealed class CommitService(
                 }
             }
 
-            // ---- 4. confirm inventory holds ----------------------------------------------------------
+            // ---- 4a. confirm seats (Seat service) ------------------------------------------------------
+            // Before inventory: losing a held seat (session expired, swept) is the likelier failure, and a failed
+            // first commit can hand confirmed seats back to the session (revert) but not unconfirm inventory.
+            if (draft.SeatsChanged)
+            {
+                seatIdsConfirmed = (await seats.ConfirmAsync(new ConfirmSeatsRequest
+                {
+                    BookingId = record.BookingId,
+                    RecordLocator = record.RecordLocator,
+                    Seats = seatRefs
+                }, ct)).ConfirmedAssignmentIds;
+            }
+
+            // ---- 4b. confirm inventory holds ---------------------------------------------------------
             var unconfirmed = draft.UnconfirmedHoldIds();
             if (unconfirmed.Count > 0)
                 await inventory.ConfirmAsync(new ConfirmHoldsRequest { HoldIds = unconfirmed, RecordLocator = record.RecordLocator }, ct);
@@ -157,12 +173,23 @@ public sealed class CommitService(
         }
         catch (Exception ex)
         {
-            if (approvedThisCommit.Count > 0) await TryVoidAsync(approvedThisCommit, ex.Message, ct);
-            if (isNew) await TryDeletePlaceholderAsync(record.BookingId, ct);
+            // Compensation runs with CancellationToken.None so a cancelled/timed-out request still cleans up.
+            if (approvedThisCommit.Count > 0) await TryVoidAsync(approvedThisCommit, ex.Message, CancellationToken.None);
+            if (seatIdsConfirmed is { Count: > 0 })
+                await TryRevertSeatsAsync(new RevertSeatsRequest { BookingId = record.BookingId, AssignmentIds = seatIdsConfirmed, NewBooking = isNew });
+            else if (seatIdsConfirmed is null && isNew && draft.SeatsChanged)
+                // confirm may have succeeded in Seat even though we saw an error (timeout): the placeholder's seats are all new
+                await TryRevertSeatsAsync(new RevertSeatsRequest { BookingId = record.BookingId, NewBooking = true });
+            if (isNew) await TryDeletePlaceholderAsync(record.BookingId, CancellationToken.None);
             throw;
         }
 
+        // Seats the booking no longer uses (changed/removed on a committed booking) are freed only now that the new
+        // version is saved. Best effort: if it fails the old seat stays blocked, which never double-sells a seat.
+        if (draft.SeatsChanged && draft.Committed) await TryFinalizeSeatsAsync(record.BookingId, seatRefs);
+
         draft.Committed = true;
+        draft.SeatsChanged = false;
         draft.BookingId = record.BookingId;
         draft.RowVersion = Convert.ToBase64String(record.RowVer);
         ctx.MarkChanged();
@@ -319,6 +346,30 @@ public sealed class CommitService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Could not void payments {PaymentIds} after a failed commit — manual follow-up required", paymentIds);
+        }
+    }
+
+    private async Task TryRevertSeatsAsync(RevertSeatsRequest request)
+    {
+        try
+        {
+            await seats.RevertAsync(request, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Could not hand seats of failed booking {BookingId} back to the session", request.BookingId);
+        }
+    }
+
+    private async Task TryFinalizeSeatsAsync(long bookingId, List<SeatAssignmentRef> seatRefs)
+    {
+        try
+        {
+            await seats.FinalizeAsync(new FinalizeSeatsRequest { BookingId = bookingId, Seats = seatRefs }, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not release replaced seats of booking {BookingId}; they stay blocked", bookingId);
         }
     }
 

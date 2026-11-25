@@ -327,6 +327,63 @@ if (pm.response.code === 400) pm.expect(pm.response.json().errors[0].code).to.eq
     req("Logout", "DELETE", "/api/auth/v1/token", tests=T_LOGOUT),
 ], "Each request checks that the API returns the documented Navitaire-style error code.")
 
+T_SEATMAP = status(200) + """const maps = pm.response.json().data;
+pm.test("a seat map per leg", () => pm.expect(maps.length).to.be.above(0));
+const units = Object.values(maps[0].seatMap.decks["1"].compartments).flatMap(c => c.units);
+const open = units.filter(u => u.availability === 5 && !u.properties.some(p => p.code === "EXITROW"));
+pm.test("open seats exist", () => pm.expect(open.length).to.be.above(1));
+pm.collectionVariables.set("unitKey", open[0].unitKey);
+pm.collectionVariables.set("unitKey2", open[1].unitKey);
+pm.collectionVariables.set("unitDesignator2", open[1].designator);
+pm.test("seat prices per passenger", () => pm.expect(maps[0].fees).to.have.property(pm.collectionVariables.get("passengerKey")));
+console.log("Picked", open[0].designator, "and", open[1].designator, "on", maps[0].seatMap.marketingCode);
+"""
+
+T_ONE_SEAT = T_OK + """const b = pm.response.json().data;
+const seats = b.journeys[0].segments[0].passengerSegment[pm.collectionVariables.get("passengerKey")].seats;
+pm.test("passenger has exactly one seat", () => pm.expect(seats.length).to.eql(1));
+pm.test("seat fee is in breakdown.passengerTotals.seats", () => pm.expect(b.breakdown.passengerTotals.seats.total).to.be.above(0));
+pm.collectionVariables.set("balanceDue", b.breakdown.balanceDue);
+"""
+
+f_seats = folder("10 Seats — choose, change, race, commit", [
+    TOKEN_REQ("1. Anonymous token (customer A)"),
+    req("2. Search CMB→DXB", "POST", "/api/nsk/v4/availability/search/simple", search_simple(), T_SEARCH()),
+    req("3. Trip sell", "POST", "/api/nsk/v4/trip/sell", SELL_1ADT, T_SELL),
+    req("4. Seat map for the journey", "GET", "/api/nsk/v3/booking/seatmaps/journey/{{journeyKey}}", tests=T_SEATMAP,
+        desc="availability: 5 Open, 4 yours, 3 held by another session, 1 sold, 2 blocked, 9 not for this fare. Price = fees[passengerKey].groups[unit.group]."),
+    req("5. Assign seat", "POST", "/api/nsk/v2/booking/passengers/{{passengerKey}}/seats/{{unitKey}}", {}, status(201)),
+    req("6. Booking shows the seat and the seat fee", "GET", "/api/nsk/v1/booking", tests=T_ONE_SEAT),
+    req("7. Change seat (assign another one)", "POST", "/api/nsk/v2/booking/passengers/{{passengerKey}}/seats/{{unitKey2}}", {}, status(201),
+        desc="Replaces the first seat: it is released at once and its fee is removed."),
+    req("8. Still exactly one seat", "GET", "/api/nsk/v1/booking", tests=T_ONE_SEAT),
+    req("9. Customer B: anonymous token", "POST", "/api/auth/v1/token/anonymous", {"applicationName": "dotREZWeb"}, T_TOKEN("token2"), auth="none"),
+    req("10. Customer B: search", "POST", "/api/nsk/v4/availability/search/simple", search_simple(), T_SEARCH("b"), auth="token2"),
+    req("11. Customer B: sell the same flight", "POST", "/api/nsk/v4/trip/sell",
+        {**SELL_1ADT, "keys": [{"journeyKey": "{{bjourneyKey}}", "fareAvailabilityKey": "{{bfareAvailabilityKey}}"}]}, status(200), auth="token2"),
+    req("12. Customer B: A's seat shows as held by another session", "GET", "/api/nsk/v3/booking/seatmaps/journey/{{bjourneyKey}}",
+        tests=status(200) + """const units = Object.values(pm.response.json().data[0].seatMap.decks["1"].compartments).flatMap(c => c.units);
+const u = units.find(x => x.designator === pm.collectionVariables.get("unitDesignator2"));
+pm.test("availability 3 = held for another session", () => pm.expect(u.availability).to.eql(3));
+""", auth="token2"),
+    req("13. Customer B: try to take A's seat → 409", "POST", "/api/nsk/v2/booking/passengers/MCFBRFQ-/seats/{{unitKey2}}", {},
+        error("nsk:Seat:UnitNotAvailable", 409), auth="token2",
+        desc="The double-booking guard: a unique index on (leg, seat) in the Seat database."),
+    req("14. Customer B: logout (releases B's holds)", "DELETE", "/api/auth/v1/token", tests=T_LOGOUT, auth="token2"),
+    req("15. A: passenger", "PUT", "/api/nsk/v3/booking/passengers/{{passengerKey}}", pax_body("{{firstName}}", "{{lastName}}", "1990-05-14"), T_OK),
+    req("16. A: contact", "POST", "/api/nsk/v1/booking/contacts", CONTACT, status(201)),
+    req("17. A: balance incl. seat fee", "GET", "/api/nsk/v1/booking", tests=T_BALANCE),
+    req("18. A: pay", "POST", "/api/nsk/v6/booking/payments", card(), T_PAYMENT),
+    req("19. A: commit (confirms the seat)", "POST", "/api/nsk/v3/booking", COMMIT, T_COMMIT),
+    req("20. A: seat map after commit shows the seat as yours", "GET", "/api/nsk/v3/booking/seatmaps/journey/{{journeyKey}}",
+        tests=status(200) + """const units = Object.values(pm.response.json().data[0].seatMap.decks["1"].compartments).flatMap(c => c.units);
+pm.test("availability 4 = this booking", () => pm.expect(units.find(x => x.designator === pm.collectionVariables.get("unitDesignator2")).availability).to.eql(4));
+"""),
+    req("21. A: passenger seats", "GET", "/api/nsk/v1/booking/passengers/{{passengerKey}}/seats",
+        tests=T_OK + 'pm.test("one seat", () => pm.expect(pm.response.json().data.length).to.eql(1));\n'),
+    req("22. A: logout", "DELETE", "/api/auth/v1/token", tests=T_LOGOUT),
+], "Phase 2 Seat service. Steps 9–14 run a second customer (token2) against the same flight to show that a held seat can't be taken.")
+
 # Pre-request: default travel dates (+14 / +21 days) when not set.
 PRE = '''// Default dates: travelDate = today + 14 days, returnDate = today + 21 days (flights are seeded for 30 days).
 const addDays = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
@@ -340,12 +397,13 @@ variables = [("baseUrl", "http://localhost:5000"), ("origin", "CMB"), ("destinat
              ("journeyKey", ""), ("fareAvailabilityKey", ""), ("outjourneyKey", ""), ("outfareAvailabilityKey", ""),
              ("retjourneyKey", ""), ("retfareAvailabilityKey", ""), ("cnxjourneyKey", ""), ("cnxfareAvailabilityKey", ""),
              ("passengerKey", ""), ("passengerKey1", ""), ("passengerKey2", ""), ("passengerKey3", ""),
-             ("balanceDue", "0"), ("paymentKey", ""), ("recordLocator", ""), ("bookingKey", "")]
+             ("balanceDue", "0"), ("paymentKey", ""), ("recordLocator", ""), ("bookingKey", ""),
+             ("token2", ""), ("bjourneyKey", ""), ("bfareAvailabilityKey", ""), ("unitKey", ""), ("unitKey2", ""), ("unitDesignator2", "")]
 
 collection = {
     "info": {
         "_postman_id": uid("collection"),
-        "name": "Pss Engine (Navitaire-style) — Phase 1",
+        "name": "Pss Engine (Navitaire-style) — Phase 1 + seats",
         "description": ("Requests for the Pss airline booking engine through the gateway.\n\n"
                         "1. Import this collection and the 'Pss Local' environment; select the environment.\n"
                         "2. Start the stack (docker compose up --build).\n"
@@ -358,7 +416,7 @@ collection = {
     "auth": {"type": "bearer", "bearer": [{"key": "token", "value": "{{token}}", "type": "string"}]},
     "event": [{"listen": "prerequest", "script": {"type": "text/javascript", "exec": PRE.split("\n")}}],
     "variable": [{"key": k, "value": v, "type": "string"} for k, v in variables],
-    "item": [f_health, f_auth, f_ref, f_avail, f_flow, f_family, f_trip, f_manage, f_agent, f_neg],
+    "item": [f_health, f_auth, f_ref, f_avail, f_flow, f_family, f_trip, f_manage, f_agent, f_neg, f_seats],
 }
 
 env = {

@@ -1,7 +1,7 @@
 {
   "info": {
     "_postman_id": "97e2bc6a-ec41-510c-86c7-c160b1a99bad",
-    "name": "Pss Engine (Navitaire-style) — Phase 1",
+    "name": "Pss Engine (Navitaire-style) — Phase 1 + seats",
     "description": "Requests for the Pss airline booking engine through the gateway.\n\n1. Import this collection and the 'Pss Local' environment; select the environment.\n2. Start the stack (docker compose up --build).\n3. Run folder '04 Booking flow' top to bottom (or with the Collection Runner).\n\nTest scripts store token, journeyKey, fareAvailabilityKey, passengerKey, balanceDue, recordLocator, bookingKey in collection variables, so nothing has to be copied by hand. travelDate/returnDate default to today+14/+21.\n\nFull documentation: docs/API_REFERENCE.md",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
@@ -172,6 +172,36 @@
     },
     {
       "key": "bookingKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bjourneyKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "bfareAvailabilityKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "unitKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "unitKey2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "unitDesignator2",
       "value": "",
       "type": "string"
     }
@@ -4712,6 +4742,1030 @@
         }
       ],
       "description": "Each request checks that the API returns the documented Navitaire-style error code."
+    },
+    {
+      "name": "10 Seats — choose, change, race, commit",
+      "item": [
+        {
+          "name": "1. Anonymous token (customer A)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/v1/token/anonymous",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "v1",
+                "token",
+                "anonymous"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationName\": \"dotREZWeb\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Creates an anonymous session. The test script stores the token in {{token}}; every other request sends it as Bearer."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"token\", d.token);",
+                  "pm.test(\"token returned\", () => pm.expect(d.token).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Search CMB→DXB",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v4/availability/search/simple",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v4",
+                "availability",
+                "search",
+                "simple"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origin\": \"{{origin}}\",\n  \"destination\": \"{{destination}}\",\n  \"beginDate\": \"{{travelDate}}\",\n  \"passengers\": {\n    \"types\": [\n      {\n        \"type\": \"ADT\",\n        \"count\": 1\n      }\n    ]\n  },\n  \"codes\": {\n    \"currencyCode\": \"USD\"\n  },\n  \"numberOfFaresPerJourney\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "{",
+                  "// Picks the first journey that still has a fare and stores its keys.",
+                  "const d = pm.response.json().data;",
+                  "const market = pm.variables.replaceIn(\"{{origin}}|{{destination}}\");",
+                  "const journeys = d.results[0].trips.flatMap(t => t.journeysAvailableByMarket[market] || []);",
+                  "const j = journeys.find(x => x.fares.length > 0);",
+                  "pm.test(\"a bookable journey was found for \" + market, () => pm.expect(j).to.exist);",
+                  "if (j) {",
+                  "  pm.collectionVariables.set(\"journeyKey\", j.journeyKey);",
+                  "  pm.collectionVariables.set(\"fareAvailabilityKey\", j.fares[0].fareAvailabilityKey);",
+                  "  const fare = d.faresAvailable[j.fares[0].fareAvailabilityKey];",
+                  "  console.log(\"Selected\", j.segments.map(s => s.identifier.carrierCode + s.identifier.identifier).join(\"+\"),",
+                  "              j.designator.departure, \"class\", fare.fares.map(f => f.classOfService).join(\"/\"), \"fareTotal\", fare.totals.fareTotal);",
+                  "}",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Trip sell",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v4/trip/sell",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v4",
+                "trip",
+                "sell"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"keys\": [\n    {\n      \"journeyKey\": \"{{journeyKey}}\",\n      \"fareAvailabilityKey\": \"{{fareAvailabilityKey}}\"\n    }\n  ],\n  \"passengers\": {\n    \"types\": [\n      {\n        \"type\": \"ADT\",\n        \"count\": 1\n      }\n    ]\n  },\n  \"currencyCode\": \"USD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"balanceDue\", b.breakdown.balanceDue);",
+                  "const keys = Object.keys(b.passengers);",
+                  "keys.forEach((k, i) => pm.collectionVariables.set(\"passengerKey\" + (i + 1), k));",
+                  "pm.collectionVariables.set(\"passengerKey\", keys[0]);",
+                  "pm.test(\"booking is in state (status 0)\", () => pm.expect(b.info.status).to.eql(0));",
+                  "pm.test(\"balance due > 0\", () => pm.expect(b.breakdown.balanceDue).to.be.above(0));",
+                  "console.log(\"Balance due\", b.breakdown.balanceDue, b.currencyCode, \"passengers\", keys);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Seat map for the journey",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v3/booking/seatmaps/journey/{{journeyKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v3",
+                "booking",
+                "seatmaps",
+                "journey",
+                "{{journeyKey}}"
+              ]
+            },
+            "description": "availability: 5 Open, 4 yours, 3 held by another session, 1 sold, 2 blocked, 9 not for this fare. Price = fees[passengerKey].groups[unit.group]."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const maps = pm.response.json().data;",
+                  "pm.test(\"a seat map per leg\", () => pm.expect(maps.length).to.be.above(0));",
+                  "const units = Object.values(maps[0].seatMap.decks[\"1\"].compartments).flatMap(c => c.units);",
+                  "const open = units.filter(u => u.availability === 5 && !u.properties.some(p => p.code === \"EXITROW\"));",
+                  "pm.test(\"open seats exist\", () => pm.expect(open.length).to.be.above(1));",
+                  "pm.collectionVariables.set(\"unitKey\", open[0].unitKey);",
+                  "pm.collectionVariables.set(\"unitKey2\", open[1].unitKey);",
+                  "pm.collectionVariables.set(\"unitDesignator2\", open[1].designator);",
+                  "pm.test(\"seat prices per passenger\", () => pm.expect(maps[0].fees).to.have.property(pm.collectionVariables.get(\"passengerKey\")));",
+                  "console.log(\"Picked\", open[0].designator, \"and\", open[1].designator, \"on\", maps[0].seatMap.marketingCode);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Assign seat",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v2/booking/passengers/{{passengerKey}}/seats/{{unitKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v2",
+                "booking",
+                "passengers",
+                "{{passengerKey}}",
+                "seats",
+                "{{unitKey}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Booking shows the seat and the seat fee",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v1/booking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v1",
+                "booking"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json().data;",
+                  "const seats = b.journeys[0].segments[0].passengerSegment[pm.collectionVariables.get(\"passengerKey\")].seats;",
+                  "pm.test(\"passenger has exactly one seat\", () => pm.expect(seats.length).to.eql(1));",
+                  "pm.test(\"seat fee is in breakdown.passengerTotals.seats\", () => pm.expect(b.breakdown.passengerTotals.seats.total).to.be.above(0));",
+                  "pm.collectionVariables.set(\"balanceDue\", b.breakdown.balanceDue);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Change seat (assign another one)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v2/booking/passengers/{{passengerKey}}/seats/{{unitKey2}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v2",
+                "booking",
+                "passengers",
+                "{{passengerKey}}",
+                "seats",
+                "{{unitKey2}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Replaces the first seat: it is released at once and its fee is removed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. Still exactly one seat",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v1/booking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v1",
+                "booking"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json().data;",
+                  "const seats = b.journeys[0].segments[0].passengerSegment[pm.collectionVariables.get(\"passengerKey\")].seats;",
+                  "pm.test(\"passenger has exactly one seat\", () => pm.expect(seats.length).to.eql(1));",
+                  "pm.test(\"seat fee is in breakdown.passengerTotals.seats\", () => pm.expect(b.breakdown.passengerTotals.seats.total).to.be.above(0));",
+                  "pm.collectionVariables.set(\"balanceDue\", b.breakdown.balanceDue);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. Customer B: anonymous token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/v1/token/anonymous",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "v1",
+                "token",
+                "anonymous"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"applicationName\": \"dotREZWeb\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"token2\", d.token);",
+                  "pm.test(\"token returned\", () => pm.expect(d.token).to.be.a(\"string\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Customer B: search",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v4/availability/search/simple",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v4",
+                "availability",
+                "search",
+                "simple"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"origin\": \"{{origin}}\",\n  \"destination\": \"{{destination}}\",\n  \"beginDate\": \"{{travelDate}}\",\n  \"passengers\": {\n    \"types\": [\n      {\n        \"type\": \"ADT\",\n        \"count\": 1\n      }\n    ]\n  },\n  \"codes\": {\n    \"currencyCode\": \"USD\"\n  },\n  \"numberOfFaresPerJourney\": 4\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "{",
+                  "// Picks the first journey that still has a fare and stores its keys.",
+                  "const d = pm.response.json().data;",
+                  "const market = pm.variables.replaceIn(\"{{origin}}|{{destination}}\");",
+                  "const journeys = d.results[0].trips.flatMap(t => t.journeysAvailableByMarket[market] || []);",
+                  "const j = journeys.find(x => x.fares.length > 0);",
+                  "pm.test(\"a bookable journey was found for \" + market, () => pm.expect(j).to.exist);",
+                  "if (j) {",
+                  "  pm.collectionVariables.set(\"bjourneyKey\", j.journeyKey);",
+                  "  pm.collectionVariables.set(\"bfareAvailabilityKey\", j.fares[0].fareAvailabilityKey);",
+                  "  const fare = d.faresAvailable[j.fares[0].fareAvailabilityKey];",
+                  "  console.log(\"Selected\", j.segments.map(s => s.identifier.carrierCode + s.identifier.identifier).join(\"+\"),",
+                  "              j.designator.departure, \"class\", fare.fares.map(f => f.classOfService).join(\"/\"), \"fareTotal\", fare.totals.fareTotal);",
+                  "}",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "11. Customer B: sell the same flight",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v4/trip/sell",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v4",
+                "trip",
+                "sell"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"keys\": [\n    {\n      \"journeyKey\": \"{{bjourneyKey}}\",\n      \"fareAvailabilityKey\": \"{{bfareAvailabilityKey}}\"\n    }\n  ],\n  \"passengers\": {\n    \"types\": [\n      {\n        \"type\": \"ADT\",\n        \"count\": 1\n      }\n    ]\n  },\n  \"currencyCode\": \"USD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "12. Customer B: A's seat shows as held by another session",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v3/booking/seatmaps/journey/{{bjourneyKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v3",
+                "booking",
+                "seatmaps",
+                "journey",
+                "{{bjourneyKey}}"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const units = Object.values(pm.response.json().data[0].seatMap.decks[\"1\"].compartments).flatMap(c => c.units);",
+                  "const u = units.find(x => x.designator === pm.collectionVariables.get(\"unitDesignator2\"));",
+                  "pm.test(\"availability 3 = held for another session\", () => pm.expect(u.availability).to.eql(3));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "13. Customer B: try to take A's seat → 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v2/booking/passengers/MCFBRFQ-/seats/{{unitKey2}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v2",
+                "booking",
+                "passengers",
+                "MCFBRFQ-",
+                "seats",
+                "{{unitKey2}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token2}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "description": "The double-booking guard: a unique index on (leg, seat) in the Seat database."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"error code nsk:Seat:UnitNotAvailable\", () => pm.expect(pm.response.json().errors[0].code).to.eql(\"nsk:Seat:UnitNotAvailable\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "14. Customer B: logout (releases B's holds)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/v1/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "v1",
+                "token"
+              ]
+            },
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token2}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "15. A: passenger",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v3/booking/passengers/{{passengerKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v3",
+                "booking",
+                "passengers",
+                "{{passengerKey}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": {\n    \"first\": \"{{firstName}}\",\n    \"last\": \"{{lastName}}\",\n    \"title\": \"MR\"\n  },\n  \"info\": {\n    \"nationality\": \"LK\",\n    \"residentCountry\": \"LK\",\n    \"gender\": \"Male\",\n    \"dateOfBirth\": \"1990-05-14\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "16. A: contact",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v1/booking/contacts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v1",
+                "booking",
+                "contacts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contactTypeCode\": \"P\",\n  \"name\": {\n    \"first\": \"{{firstName}}\",\n    \"last\": \"{{lastName}}\",\n    \"title\": \"MR\"\n  },\n  \"emailAddress\": \"{{email}}\",\n  \"phoneNumbers\": [\n    {\n      \"type\": \"Mobile\",\n      \"number\": \"+94770000000\"\n    }\n  ],\n  \"address\": {\n    \"lineOne\": \"1 Galle Road\",\n    \"city\": \"Colombo\",\n    \"countryCode\": \"LK\",\n    \"postalCode\": \"00300\"\n  },\n  \"distributionOption\": \"Email\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "17. A: balance incl. seat fee",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v1/booking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v1",
+                "booking"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const b = pm.response.json().data;",
+                  "pm.collectionVariables.set(\"balanceDue\", b.breakdown.balanceDue);",
+                  "const keys = Object.keys(b.passengers);",
+                  "keys.forEach((k, i) => pm.collectionVariables.set(\"passengerKey\" + (i + 1), k));",
+                  "pm.collectionVariables.set(\"passengerKey\", keys[0]);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "18. A: pay",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v6/booking/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v6",
+                "booking",
+                "payments"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"paymentMethodCode\": \"VI\",\n  \"amount\": {{balanceDue}},\n  \"currencyCode\": \"USD\",\n  \"paymentFields\": {\n    \"ACCTNO\": \"4111111111111111\",\n    \"EXPDAT\": \"12/2030\",\n    \"CC::AccountHolderName\": \"{{firstName}} {{lastName}}\",\n    \"CC::VerificationCode\": \"123\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "const loc = pm.response.headers.get(\"Location\");",
+                  "pm.test(\"Location header\", () => pm.expect(loc).to.include(\"/api/nsk/v1/booking/payments/\"));",
+                  "pm.collectionVariables.set(\"paymentKey\", loc.split(\"/\").pop());"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "19. A: commit (confirms the seat)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v3/booking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v3",
+                "booking"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"receivedBy\": \"Postman\",\n  \"comments\": [\n    {\n      \"type\": \"Default\",\n      \"text\": \"Created from the Postman collection\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Location /api/nsk/v1/booking\", () => pm.expect(pm.response.headers.get(\"Location\")).to.eql(\"/api/nsk/v1/booking\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "20. A: seat map after commit shows the seat as yours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v3/booking/seatmaps/journey/{{journeyKey}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v3",
+                "booking",
+                "seatmaps",
+                "journey",
+                "{{journeyKey}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "const units = Object.values(pm.response.json().data[0].seatMap.decks[\"1\"].compartments).flatMap(c => c.units);",
+                  "pm.test(\"availability 4 = this booking\", () => pm.expect(units.find(x => x.designator === pm.collectionVariables.get(\"unitDesignator2\")).availability).to.eql(4));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "21. A: passenger seats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/nsk/v1/booking/passengers/{{passengerKey}}/seats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "nsk",
+                "v1",
+                "booking",
+                "passengers",
+                "{{passengerKey}}",
+                "seats"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"one seat\", () => pm.expect(pm.response.json().data.length).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "22. A: logout",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/v1/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "v1",
+                "token"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Phase 2 Seat service. Steps 9–14 run a second customer (token2) against the same flight to show that a held seat can't be taken."
     }
   ]
 }

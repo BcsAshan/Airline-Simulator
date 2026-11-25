@@ -1,4 +1,4 @@
-# Pss Engine — API Reference (Phase 1)
+# Pss Engine — API Reference (Phase 1 + Phase 2 seats)
 
 This document describes every public endpoint that is implemented today, how to call it, and what it returns.
 The API copies the Navitaire dotREZ Digital API contract, so routes, field names and error codes match Navitaire
@@ -25,6 +25,7 @@ so you can run it top to bottom without copy-pasting.
 11. [Enumerations](#11-enumerations)
 12. [Demo data & test cards](#12-demo-data--test-cards)
 13. [Internal & operational endpoints](#13-internal--operational-endpoints)
+14. [Seats — Seat service (Phase 2)](#14-seats--seat-service-phase-2)
 
 ---
 
@@ -139,6 +140,8 @@ Every response uses the same wrapper:
  3  POST /api/nsk/v4/trip/sell                            → booking in state, seats held, passengerKeys
  4  PUT  /api/nsk/v3/booking/passengers/{passengerKey}    → names, DOB, gender   (repeat per passenger)
  5  POST /api/nsk/v1/booking/contacts                     → primary contact "P"
+ 5b GET  /api/nsk/v3/booking/seatmaps/journey/{key}       → seat maps (optional seat selection, see §14)
+    POST /api/nsk/v2/booking/passengers/{pk}/seats/{unitKey} → seat + seat fee on the booking
  6  GET  /api/nsk/v2/booking/payments/available           → payment methods + required fields
  7  POST /api/nsk/v6/booking/payments                     → card / cash for the balance due
  8  POST /api/nsk/v3/booking                              → COMMIT → record locator
@@ -785,6 +788,8 @@ Agents can also do everything a customer can.
 | `nsk:Contact:InvalidContactTypeCode` / `InvalidEmailAddress` [DESIGN] | 400 | Contact rules |
 | `nsk:Currency:InvalidCurrencyCode` | 400 | Payment currency differs from booking |
 | `nsk:Payment:…` | 400 | See [Payments](#7-payments--payment) |
+| `nsk:Seat:UnitNotAvailable` [DESIGN] | 409 | Seat is held or sold to someone else — reload the seat map. Also at commit when a held seat was lost |
+| `nsk:Seat:UnitNotAssignable` / `CabinMismatch` / `PassengerRestricted` / `NotAssigned` / `SeatMapNotFound` [DESIGN] | 400 | See [Seats](#14-seats--seat-service-phase-2) |
 
 ---
 
@@ -813,6 +818,8 @@ Sent and returned as numbers; you may also send the name.
 | DistributionOption | 0 None, 1 Mail, 2 Email, 3 Fax |
 | TaxesAndFeesRollupMode | 0 None, 1 Taxes, 2 TaxesAndFees |
 | UserType | 1 Customer, 2 Agent, 3 Anonymous |
+| SeatAvailability [DESIGN numbering] | 0 Unknown, 1 Reserved (sold), 2 Blocked, 3 HeldForAnotherSession, 4 HeldForThisSession (yours), 5 Open, 9 Restricted (not for this fare) |
+| FeeType (seat) | 9 SeatFee — seat fees are `passengers[pk].fees[]` with `type` 9, `code` "SEAT" |
 
 ---
 
@@ -883,9 +890,115 @@ Listed here for debugging with Swagger only:
 | Shopping | `GET /internal/shopping/offers/{fareAvailabilityKey}` | Booking |
 | Booking | `GET /internal/booking/draft`, `POST /internal/booking/draft/payments`, `DELETE /internal/booking/draft/payments/{key}` | Payment |
 | Payment | `POST /internal/payments/authorize`, `POST /internal/payments/void` | Booking (commit) |
+| Booking | `GET /internal/booking/draft/booking`, `POST /internal/booking/draft/seats`, `POST /internal/booking/draft/seats/remove` | Seat |
+| Seat | `POST /internal/seats/confirm`, `/finalize`, `/release`, `/revert` | Booking (commit, reset, retrieve) |
 
 ---
 
-*Not implemented yet (see `CLAUDE.md` → Next steps):* infants, seats, SSRs/bundles/baggage, promotions, fare rules,
+## 14. Seats — Seat service (Phase 2)
+
+The Seat service (port 5110, gateway cluster `seat`) owns seat maps, seat inventory and seat prices. It works on the
+**booking in state**: sell first, then pick seats, then pay and commit. Seat selection is optional.
+
+### GET /api/nsk/v3/booking/seatmaps/journey/{journeyKey} · GET /api/nsk/v3/booking/seatmaps/segment/{segmentKey}
+
+`v1` and `v2` are accepted as aliases. Returns one item **per flight leg** (a connection has two):
+
+```json
+{
+  "data": [
+    {
+      "journeyKey": "…", "segmentKey": "…", "legKey": "…",
+      "seatMap": {
+        "name": "Airbus A321", "equipmentType": "321", "marketingCode": "XX 101",
+        "departureStation": "CMB", "arrivalStation": "DXB", "availableUnits": 170, "fareCompartment": "Y",
+        "decks": { "1": { "number": 1, "availableUnits": 170, "compartments": {
+          "C": { "compartmentDesignator": "C", "sequence": 1, "length": 3, "width": 5, "availableUnits": 0, "units": [ … ] },
+          "Y": { "compartmentDesignator": "Y", "sequence": 2, "length": 30, "width": 7, "availableUnits": 170, "units": [
+            { "unitKey": "NjM5…", "designator": "12A", "compartmentDesignator": "Y", "assignable": true, "availability": 5,
+              "group": 1, "travelClassCode": "Y", "x": 0, "y": 12, "type": "Seat",
+              "properties": [ { "code": "WINDOW", "value": "true" } ], "restrictedPassengerTypes": [] }
+          ] }
+        } } }
+      },
+      "fees": { "MCFBRFQ-": { "passengerKey": "MCFBRFQ-", "groups": {
+        "1": { "group": 1, "fees": [ { "type": 9, "code": "SEAT", "serviceCharges": [ { "type": 6, "code": "SEAT", "amount": 8, "currencyCode": "USD" } ] } ] },
+        "2": { "group": 2, "fees": [ … 15 … ] }, "3": { "group": 3, "fees": [ … 25 … ] }, "4": { "group": 4, "fees": [ … 0 … ] } } } },
+      "propertyLookup": { "WINDOW": "Window seat", "AISLE": "Aisle seat", "EXITROW": "Emergency exit row", "LEGROOM": "Extra legroom", "PREFERRED": "Front of the cabin" },
+      "groupLookup": { "1": "Standard", "2": "Preferred", "3": "Extra legroom", "4": "Business" }
+    }
+  ]
+}
+```
+
+How to read it:
+
+- Draw the cabin from `x` / `y` (x counts seat columns plus aisles; `y` counts rows, with an empty row between cabins).
+- `availability` is for **your** session: 5 Open, 4 yours (held or confirmed for this booking), 3 held by another
+  customer who hasn't paid yet, 1 sold, 2 blocked, 9 not available to your fare (e.g. Business seats on an Economy fare).
+- Price of a seat for a passenger = `fees[passengerKey].groups[unit.group]` (sum of `serviceCharges`). It is per leg.
+- `restrictedPassengerTypes` lists passenger types that may not sit there (exit rows: CHD, INF).
+
+### POST /api/nsk/v2/booking/passengers/{passengerKey}/seats/{unitKey}
+
+Body optional: `{ "waive": false }` (`waive: true` = no seat fee, agents only). Response **201**, `Location: /api/nsk/v1/booking/passengers/{passengerKey}/seats`.
+
+- Puts the seat on `journeys[].segments[].passengerSegment[pk].seats[]` and, if it costs money, a seat fee on
+  `passengers[pk].fees[]` (type 9 SeatFee). `breakdown.passengerTotals.seats` and `balanceDue` include it.
+- A passenger has **one seat per leg**: assigning another seat replaces the first one (its hold and fee are removed).
+- Assigning the seat the passenger already has does nothing.
+- The seat is **held** for your session until you commit, log out, or the session expires (15 idle minutes).
+
+### DELETE /api/nsk/v1/booking/passengers/{passengerKey}/seats/{unitKey}
+
+Removes the seat and its fee. `v2` accepted. 400 `nsk:Seat:NotAssigned` if the passenger doesn't have that seat.
+
+### GET /api/nsk/v1/booking/passengers/{passengerKey}/seats
+
+The passenger's seats on all legs (`PassengerSeat[]`: `unitDesignator`, `compartmentDesignator`, `departureStation`, `arrivalStation`, `unitKey`, `seatInformation.propertyList`).
+
+### Rules
+
+| Rule | Error |
+|---|---|
+| Seat sold or held by another session | **409** `nsk:Seat:UnitNotAvailable` — reload the seat map |
+| Seat already given to another passenger of the same booking | **409** `nsk:Seat:UnitNotAvailable` |
+| Blocked seat or no such seat on this aircraft | 400 `nsk:Seat:UnitNotAssignable` |
+| Business seat on an Economy fare (or the reverse) | 400 `nsk:Seat:CabinMismatch` |
+| Child in an emergency exit row | 400 `nsk:Seat:PassengerRestricted` |
+| `waive` without an agent session | 401 `nsk:Authorization:AgentOnly` |
+| Two seat calls at once on the same session | 409 `core:Session:ConcurrentRequest` |
+
+**No double booking.** Every taken seat is a row in the Seat database with a **unique index on (flight leg, seat)**. A
+seat request is an `INSERT`; when two customers click the same seat at the same moment, the database accepts one and
+rejects the other, which gets 409 `nsk:Seat:UnitNotAvailable`. Holds belong to the session: logout, session expiry
+(`SessionExpired` event), `booking/reset`, removing the journey or retrieving another booking release them, and a
+sweeper frees holds of sessions that no longer exist.
+
+**Commit.** `POST`/`PUT v3/booking` confirms the booking's seats in the Seat service before inventory is confirmed. If a
+held seat was lost in the meantime (session expired), the commit fails with **409** `nsk:Seat:UnitNotAvailable`, any card
+authorised in that commit is voided, and nothing is saved — pick the seat again and commit again. For a committed
+booking (after retrieve), a changed seat keeps the old seat until the change is committed; then the old seat is freed.
+A seat fee added to a confirmed booking leaves a balance due: pay it before committing (or the booking goes on hold
+when holding is allowed).
+
+**Prices** (USD, per passenger per leg; demo data in `tools/Pss.SeedData/DemoCarrier.cs`):
+
+| Group | Seats | Price |
+|---|---|---|
+| 1 Standard | most economy seats | 8 |
+| 2 Preferred | first 5 economy rows (3 on the ATR) | 15 |
+| 3 Extra legroom | emergency exit rows (adults only) | 25 |
+| 4 Business | business cabin | 0 |
+
+Flex (`EF`) and Business (`BZ`) fares get every seat free.
+
+**Seat maps** (assignable seats = inventory capacity): A320 rows 1–30 3-3 (exit 12–13) · A321 Business rows 1–3 2-2,
+Economy rows 4–33 3-3 (exit 16–17; 33A/B/E/F blocked) · A330-300 Business rows 1–7 1-2-1, Economy rows 10–39 3-3-3
+(exit 24; 39K blocked) · ATR 72 rows 1–18 2-2 (exit 12; 1A/1C blocked).
+
+---
+
+*Not implemented yet (see `CLAUDE.md` → Next steps):* infants, SSRs/bundles/baggage, promotions, fare rules,
 change/cancel/refund, booking search, queues, check-in and boarding passes, 3-D Secure/DCC, vouchers, customer profiles.
 Calling a route that belongs to a service that doesn't exist yet returns **502** from the gateway.

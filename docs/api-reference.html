@@ -386,6 +386,7 @@ const SERVICES = {
   Shopping: "Flight availability and fares",
   Booking: "The booking in your session: sell, passengers, contacts",
   Payment: "Payment methods and payments on the booking",
+  Seat: "Seat maps and seat selection on the booking (Phase 2)",
   Commit: "Saving the booking and getting it back",
   Agent: "Agent session required"
 };
@@ -678,6 +679,41 @@ const ENDPOINTS = [
     sum: "Remove a payment that is not committed yet", resp: `{ "data": null }`,
     errors: [["nsk:Payment:NotRemovable", "Payment already committed (refunds in Phase 2)"], ["nsk:Payment:PaymentKeyNotFoundOnBooking", "Unknown paymentKey"]] },
 
+  // ---------------- Seats (Phase 2)
+  { id: "seatmap-journey", svc: "Seat", m: "GET", path: "/api/nsk/v3/booking/seatmaps/journey/{journeyKey}", auth: "Anonymous", status: "200",
+    sum: "Seat maps for every leg of a journey, with seat prices per passenger",
+    resp: `{
+  "data": [ {
+    "legKey": "…", "segmentKey": "…", "journeyKey": "…",
+    "seatMap": { "name": "Airbus A321", "marketingCode": "XX 101", "fareCompartment": "Y", "availableUnits": 170,
+      "decks": { "1": { "compartments": { "Y": { "length": 30, "width": 7, "units": [
+        { "unitKey": "NjM5…", "designator": "12A", "availability": 5, "group": 1, "x": 0, "y": 12,
+          "properties": [ { "code": "WINDOW", "value": "true" } ], "restrictedPassengerTypes": [] } ] } } } } },
+    "fees": { "MCFBRFQ-": { "groups": { "1": { "group": 1, "fees": [ { "type": 9, "code": "SEAT",
+      "serviceCharges": [ { "type": 6, "amount": 8, "currencyCode": "USD" } ] } ] } } } },
+    "groupLookup": { "1": "Standard", "2": "Preferred", "3": "Extra legroom", "4": "Business" }
+  } ]
+}`,
+    notes: ["availability: 5 Open, 4 yours, 3 held by another customer, 1 sold, 2 blocked, 9 not for your fare.",
+            "Price for a passenger = fees[passengerKey].groups[unit.group]. Flex and Business fares: all seats 0.",
+            "Also /seatmaps/segment/{segmentKey}; v1 and v2 accepted."] },
+  { id: "seat-assign", svc: "Seat", m: "POST", path: "/api/nsk/v2/booking/passengers/{passengerKey}/seats/{unitKey}", auth: "Anonymous", status: "201",
+    sum: "Give a passenger a seat (replaces their seat on that leg)",
+    body: `{ "waive": false }   // optional; waive = no seat fee, agents only`,
+    resp: `{ "data": null }   // Location: /api/nsk/v1/booking/passengers/{passengerKey}/seats`,
+    notes: ["The seat is held for your session until commit, logout or 15 idle minutes.",
+            "Seat fee goes to passengers[pk].fees (type 9) and breakdown.passengerTotals.seats.",
+            "No double booking: a unique index on (flight leg, seat) lets only one of two simultaneous requests win."],
+    errors: [["nsk:Seat:UnitNotAvailable", "409 — sold or held by someone else; reload the seat map"],
+             ["nsk:Seat:CabinMismatch", "Business seat on an Economy fare (or the reverse)"],
+             ["nsk:Seat:PassengerRestricted", "Child in an exit row"], ["nsk:Seat:UnitNotAssignable", "Blocked or unknown seat"]] },
+  { id: "seat-delete", svc: "Seat", m: "DELETE", path: "/api/nsk/v1/booking/passengers/{passengerKey}/seats/{unitKey}", auth: "Anonymous", status: "200",
+    sum: "Remove a passenger's seat and its fee", resp: `{ "data": null }`,
+    errors: [["nsk:Seat:NotAssigned", "The passenger doesn't have that seat"]] },
+  { id: "seat-list", svc: "Seat", m: "GET", path: "/api/nsk/v1/booking/passengers/{passengerKey}/seats", auth: "Anonymous", status: "200",
+    sum: "A passenger's seats on all legs",
+    resp: `{ "data": [ { "unitDesignator": "12A", "compartmentDesignator": "Y", "departureStation": "CMB", "arrivalStation": "DXB", "unitKey": "NjM5…" } ] }` },
+
   // ---------------- Commit / retrieve
   { id: "commit", svc: "Commit", m: "POST", path: "/api/nsk/v3/booking", auth: "Anonymous", status: "201",
     sum: "Commit: save the booking and get a record locator",
@@ -736,6 +772,7 @@ const FLOW = [
   ["Sell", "sell", "Create the booking in state. Seats are held; note the passengerKeys and balanceDue."],
   ["Passengers", "pax-put", "Give each passenger a name, birth date and gender."],
   ["Contact", "contacts-post", "Add the primary contact (type P) with an email for the itinerary."],
+  ["Seats", "seatmap-journey", "Optional: load the seat map and give each passenger a seat (seat-assign)."],
   ["Methods", "pay-methods", "See which payment methods this session can use and their required fields."],
   ["Pay", "pay-post", "Add a card payment for exactly the balance due. It is charged at commit."],
   ["Commit", "commit", "Save the booking: payments authorised, seats confirmed, record locator assigned."],
@@ -791,7 +828,12 @@ const ERRORS = [
   ["nsk:Payment:InvalidAmount", 400, "Amount ≤ 0 or above the balance due", "Ours"],
   ["nsk:Payment:Declined", 400, "Card declined at commit", "Ours"],
   ["nsk:Payment:NotRemovable", 400, "Committed payments can't be deleted", "Ours"],
-  ["nsk:Payment:PaymentKeyNotFoundOnBooking", 400, "Unknown paymentKey", "Navitaire"]
+  ["nsk:Payment:PaymentKeyNotFoundOnBooking", 400, "Unknown paymentKey", "Navitaire"],
+  ["nsk:Seat:UnitNotAvailable", 409, "Seat sold or held by someone else (or the hold was lost before commit)", "Ours"],
+  ["nsk:Seat:CabinMismatch", 400, "Seat cabin differs from the fare's cabin", "Ours"],
+  ["nsk:Seat:PassengerRestricted", 400, "Passenger type may not sit there (child in exit row)", "Ours"],
+  ["nsk:Seat:UnitNotAssignable", 400, "Blocked or unknown seat", "Ours"],
+  ["nsk:Seat:NotAssigned", 400, "Removing a seat the passenger doesn't have", "Ours"]
 ];
 
 const ENUMS = [
@@ -812,7 +854,8 @@ const ENUMS = [
   ["PhoneNumberType", "0 Other, 1 Home, 2 Work, 3 Mobile, 4 Fax"],
   ["CommentType", "0 Default, 1 Itinerary, 2 Manifest, 3 Alert, 4 Archive"],
   ["DistributionOption", "0 None, 1 Mail, 2 Email, 3 Fax"],
-  ["UserType", "1 Customer, 2 Agent, 3 Anonymous"]
+  ["UserType", "1 Customer, 2 Agent, 3 Anonymous"],
+  ["SeatAvailability", "1 Reserved, 2 Blocked, 3 HeldForAnotherSession, 4 HeldForThisSession, 5 Open, 9 Restricted"]
 ];
 
 const FLIGHTS = [

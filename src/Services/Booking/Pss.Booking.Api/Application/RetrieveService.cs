@@ -68,6 +68,7 @@ public sealed class RetrieveService(BookingDbContext db, SellService sell, IConf
     private async Task<BookingModel> LoadIntoStateAsync(DraftContext ctx, BookingRecord record, BookingModel booking, CancellationToken ct)
     {
         if (ctx.Draft is not null) await sell.TryReleaseAsync(ctx.Draft.UnconfirmedHoldIds(), ct);
+        if (ctx.Draft is { SeatsChanged: true }) await sell.TryReleaseSeatsAsync(null, ct);
 
         var paymentSeq = booking.Payments.Select(p => KeyCodec.TryDecode(p.PaymentKey, out _) ? PaymentKey.Parse(p.PaymentKey).Sequence : 0)
             .DefaultIfEmpty(0).Max();

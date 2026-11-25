@@ -12,7 +12,7 @@ Real request/response shapes: HAR files and Postman collections in `../assets/fi
 | `README.md` | How to build, run and try the API (Docker / Visual Studio / Postman) | run steps, ports or folders change |
 | `docs/API_REFERENCE.md` | Public API contract: every implemented endpoint with examples, rules, error codes, enums, demo data | **any** endpoint, request/response field, rule or error code changes |
 | `docs/api-reference.html` | Visual, self-contained version of the same reference (wayfinding-sign design, no external assets). All content lives in the JS arrays `ENDPOINTS`, `FLOW`, `ERRORS`, `ENUMS`, `FLIGHTS` at the bottom of the file | same as API_REFERENCE.md — add/edit the entry in `ENDPOINTS` (and `ERRORS`) |
-| `postman/Pss.postman_collection.json` + `Pss-Local.postman_environment.json` | Postman collection (10 folders, 105 requests, auto-captures token/keys/balance/recordLocator) | endpoints are added/changed — edit `tools/postman/generate_postman.py`, run `python tools/postman/generate_postman.py postman` |
+| `postman/Pss.postman_collection.json` + `Pss-Local.postman_environment.json` | Postman collection (11 folders, 127 requests, auto-captures token/keys/balance/recordLocator) | endpoints are added/changed — edit `tools/postman/generate_postman.py`, run `python tools/postman/generate_postman.py postman` |
 | `requests/booking-flow.http` | Same happy path for VS/Rider/VS Code | the happy path changes |
 | `CLAUDE.md` (this file) | Status, architecture, conventions, next steps | every session |
 
@@ -27,7 +27,8 @@ If you change a request/response shape the UI uses, update `../SimulatorUI/src/l
 |---|---|---|
 | 0 Foundation | ✅ done, **running in Docker** | BuildingBlocks, Contracts, YARP gateway (full §8.6 table), docker-compose, seed data, unit tests |
 | 1 MVP booking | 🟡 vertical slice built and running; end-to-end Postman run pending | see "Phase 1 coverage" — remaining items listed under "Next steps" |
-| 2–5 | ⬜ not started | |
+| 2 Seats | 🟡 **Seat service written 2026-11-25, not compiled yet** (no SDK in the authoring sandbox; desk-reviewed by an independent agent, 4 hold-lifecycle defects fixed) | see "Phase 2 — Seat service" below |
+| 2 (rest), 3–5 | ⬜ not started | |
 
 ### Verification log
 
@@ -38,6 +39,7 @@ If you change a request/response shape the UI uses, update `../SimulatorUI/src/l
 | 2026-11-25 | Gateway `GET /health` | ✅ Healthy |
 | — | `dotnet test` (unit tests) | ⬜ not yet run on the dev machine |
 | — | Postman folders 04 → 09 end to end | ⬜ in progress — first run of folder 04 is the next step |
+| — | Seat service: `docker compose up --build`, `dotnet test` (SeatTests incl. 20-session SQLite race), Postman folder 10 | ⬜ not yet run — **first real compile of the seat code** |
 
 ### Runtime fixes found during the first Docker run (don't reintroduce)
 
@@ -63,6 +65,22 @@ cleanup later: persist keys to Redis or disable the warning.
 | Booking | `v4/trip/sell`, `v4|v5/trip` (one-shot), `GET v1/booking`, `v2/booking/status`, `DELETE v1/booking/reset`, `POST|PUT v3/booking` commit, passengers GET/PUT/PATCH, contacts CRUD (`primary` alias), `DELETE v1/booking/journeys/{key}` (uncommitted only), `v2/booking/hold/available`, retrieve `v2/booking/retrieve` (strategies), agent `retrieve/byRecordLocator`, `retrieve/{bookingKey}`, stateless `v1/bookings/{rl}`, internal draft API for Payment | infants, `bookings/searchBy*`, booking history endpoints, comments endpoints |
 | Payment | `v2/booking/payments/available`, `POST v4|v6/booking/payments` (cash = agent only; VI/MC via FakeGateway), `GET/DELETE booking/payments[/{key}]`, internal authorise (idempotent) + void, `PaymentApproved/Declined` via outbox | 3DS/DCC/MCC (Phase 4), refunds (Phase 2) |
 | Notification | itinerary email on `BookingCommitted` (Mailpit in dev) | templates, culture, SMS |
+
+### Phase 2 — Seat service (`src/Services/Seat/Pss.Seat.Api`, port 5110, DB `Pss_Seat`)
+
+| Piece | Where |
+|---|---|
+| Public API | `GET v1|v2|v3/booking/seatmaps/journey/{journeyKey}` and `/segment/{segmentKey}`, `POST v1|v2/booking/passengers/{pk}/seats/{unitKey}` (body `{waive}` agents only), `DELETE …/seats/{unitKey}`, `GET v1/booking/passengers/{pk}/seats` — documented in API_REFERENCE §14, Postman folder 10 |
+| Seat maps | Built in memory from `DemoCarrier.SeatLayouts` (`SeatLayoutCatalog`); assignable seats per cabin = Equipment capacity (unit-tested). Fee groups/prices `DemoCarrier.SeatFeeGroups`; EF/BZ fares free; exit rows adults only |
+| Seat inventory | SQL table `SeatAssignment` (Held = session-owned, Confirmed = booking-owned). **Unique index (LegId, UnitDesignator) is the double-booking guard**: a claim is an INSERT, the race loser gets a unique violation → 409 `nsk:Seat:UnitNotAvailable` (`SeatAssignmentStore.ClaimAsync`) |
+| Draft changes | Seat never writes the draft: it calls Booking `GET /internal/booking/draft/booking`, `POST /internal/booking/draft/seats`, `POST …/seats/remove` (`SeatDraftOps` in Booking). Seat = `PassengerSegment.Seats` (typed `PassengerSeat`, one per leg, matched by stations) + `PassengerFee` type 9 SeatFee; `BookingCalculator` puts them in `breakdown.passengerTotals.seats` |
+| Locks | Seat assign/remove of one session are serialised by Seat's own Redis lock `pss:session:{sid}:seatlock` (NOT Booking's lock — Seat calls Booking, which takes that one; sharing would deadlock). Seat's internal confirm/finalize/release/revert take no lock |
+| Commit | `CommitService` step 4a (before inventory confirm), only when `draft.SeatsChanged`: `POST /internal/seats/confirm` (Held→Confirmed, deletes nothing, returns ids) → on failure `revert` those ids (CancellationToken.None) → after `PersistAsync` succeeds on a re-commit, `finalize` frees seats the booking no longer uses |
+| Release | `SessionExpired` consumer, `HeldSeatSweeper` (held rows of sessions missing in Redis), Booking calls `/internal/seats/release` on reset, trip (new draft), retrieve (replaces draft), remove journey |
+
+Known limitations: swapping seats between two passengers of the same booking needs a remove first; a cheaper seat on a
+paid booking can't be committed (would need a refund → `InvalidPaymentAmount`); a PUT commit that times out after
+seat confirm isn't reverted (seats stay blocked, never double-sold).
 
 ## Architecture in one screen
 
@@ -117,9 +135,10 @@ cleanup later: persist keys to Redis or disable the warning.
 1. ~~Build on the dev machine~~ ✅ done (Docker). Now: run `dotnet test Pss.sln`; run the Postman collection (folders
    04 → 09) end to end and fix any test that fails (the scripts encode the documented behaviour in `docs/API_REFERENCE.md`).
    Record results in the verification log above.
-2. Finish Phase 1 backlog: concurrency test for the last seat, HAR replay contract test (§23), infants, token role/transfer,
+2. Compile + test the Seat service (see verification log), run Postman folder 10, then use the SimulatorUI seat step.
+3. Finish Phase 1 backlog: concurrency test for the last seat, HAR replay contract test (§23), infants, token role/transfer,
    password endpoints, EF migrations instead of `EnsureCreated`, booking history/comments endpoints.
-3. Phase 2 (§25): Seat service, Ancillary (SSRs/bundles/baggage), fees engine + promotions + fare rules in Pricing,
+4. Phase 2 (§25): ~~Seat service~~ (written), Ancillary (SSRs/bundles/baggage), fees engine + promotions + fare rules in Pricing,
    change/cancel/refund flows, credit shell (Account service), divide.
 
 ## Prompt template for the next session

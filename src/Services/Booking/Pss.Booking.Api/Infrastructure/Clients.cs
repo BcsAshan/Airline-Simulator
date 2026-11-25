@@ -64,6 +64,31 @@ public sealed class PaymentClient(HttpClient http) : IPaymentClient
         => await (await http.PostEnvelopeAsync("internal/payments/void", request, ct)).EnsureEnvelopeSuccessAsync(ct);
 }
 
+/// <summary>Seat service (Phase 2): confirm seats at commit, release held seats when the draft is dropped.</summary>
+public interface ISeatClient
+{
+    Task<ConfirmSeatsResponse> ConfirmAsync(ConfirmSeatsRequest request, CancellationToken ct);
+    Task FinalizeAsync(FinalizeSeatsRequest request, CancellationToken ct);
+    Task ReleaseSessionAsync(IReadOnlyCollection<long>? legIds, CancellationToken ct);
+    Task RevertAsync(RevertSeatsRequest request, CancellationToken ct);
+}
+
+public sealed class SeatClient(HttpClient http) : ISeatClient
+{
+    public async Task<ConfirmSeatsResponse> ConfirmAsync(ConfirmSeatsRequest request, CancellationToken ct)
+        => await (await http.PostEnvelopeAsync("internal/seats/confirm", request, ct)).ReadDataAsync<ConfirmSeatsResponse>(ct);
+
+    public async Task FinalizeAsync(FinalizeSeatsRequest request, CancellationToken ct)
+        => await (await http.PostEnvelopeAsync("internal/seats/finalize", request, ct)).EnsureEnvelopeSuccessAsync(ct);
+
+    public async Task ReleaseSessionAsync(IReadOnlyCollection<long>? legIds, CancellationToken ct)
+        => await (await http.PostEnvelopeAsync("internal/seats/release", new ReleaseSeatsRequest { LegIds = legIds?.ToList() }, ct))
+            .EnsureEnvelopeSuccessAsync(ct);
+
+    public async Task RevertAsync(RevertSeatsRequest request, CancellationToken ct)
+        => await (await http.PostEnvelopeAsync("internal/seats/revert", request, ct)).EnsureEnvelopeSuccessAsync(ct);
+}
+
 public sealed class PassengerTypeInfo
 {
     public string PassengerTypeCode { get; set; } = string.Empty;

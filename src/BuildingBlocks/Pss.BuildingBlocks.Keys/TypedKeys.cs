@@ -80,6 +80,27 @@ public static class SeatmapReference
         => KeyCodec.Encode('!', carrier, flightNumber.Trim(), string.IsNullOrEmpty(opSuffix) ? " " : opSuffix, departureLocal.Ticks, origin, destination);
 }
 
+/// <summary>
+/// [DESIGN] unitKey (one seat on one flight leg) = "&lt;local departure ticks&gt;!CC!nnnn!ORG!DST!&lt;inventoryLegId&gt;!compartment!designator",
+/// e.g. "...!XX!101!CMB!DXB!42!Y!12A". The inventory leg id makes it unique per flight date.
+/// </summary>
+public readonly record struct UnitKey(DateTime DepartureLocal, string CarrierCode, string FlightNumber, string Origin, string Destination,
+    long LegId, string CompartmentDesignator, string UnitDesignator)
+{
+    public string Encode() => KeyCodec.Encode('!', DepartureLocal.Ticks, CarrierCode, FlightNumber.Trim(), Origin, Destination, LegId,
+        CompartmentDesignator, UnitDesignator);
+
+    public static UnitKey Parse(string? key)
+    {
+        var p = KeyCodec.DecodeParts(key, '!', 8);
+        if (!long.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var ticks) ||
+            !long.TryParse(p[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out var legId) ||
+            ticks < 0 || ticks > DateTime.MaxValue.Ticks || string.IsNullOrWhiteSpace(p[7]))
+            throw DomainException.InvalidKey(key);
+        return new UnitKey(new DateTime(ticks), p[1], p[2], p[3], p[4], legId, p[6], p[7].Trim().ToUpperInvariant());
+    }
+}
+
 /// <summary>fareAvailabilityKey = "offerId!index" (offer cached by Shopping).</summary>
 public readonly record struct FareAvailabilityKey(string OfferId, int Index)
 {

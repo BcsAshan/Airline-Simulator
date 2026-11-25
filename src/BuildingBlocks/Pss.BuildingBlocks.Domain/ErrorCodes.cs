@@ -59,6 +59,14 @@ public static class ErrorCodes
     public const string PaymentDeclined = "nsk:Payment:Declined";                          // [DESIGN]
     public const string PaymentNotRemovable = "nsk:Payment:NotRemovable";                  // [DESIGN]
 
+    // seats (Phase 2)
+    public const string SeatUnitNotAvailable = "nsk:Seat:UnitNotAvailable";                 // [DESIGN] 409 taken/held by someone else
+    public const string SeatUnitNotAssignable = "nsk:Seat:UnitNotAssignable";               // [DESIGN] blocked / no such seat
+    public const string SeatCabinMismatch = "nsk:Seat:CabinMismatch";                       // [DESIGN] seat cabin ≠ fare cabin
+    public const string SeatPassengerRestricted = "nsk:Seat:PassengerRestricted";           // [DESIGN] e.g. child in exit row
+    public const string SeatNotAssigned = "nsk:Seat:NotAssigned";                           // [DESIGN] remove a seat the passenger doesn't have
+    public const string SeatMapNotFound = "nsk:Seat:SeatMapNotFound";                       // [DESIGN] no layout for the equipment
+
     // identity
     public const string PasswordExpired = "nsk-server:PasswordExpired";
     public const string InvalidCredentials = "nsk:Authentication:InvalidCredentials";      // [DESIGN]

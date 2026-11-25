@@ -22,6 +22,7 @@ public sealed class TripService(SellService sell, BookingCommands commands)
         if (ctx.Draft is not null)
         {
             if (!ctx.Draft.Committed) await sell.TryReleaseAsync(ctx.Draft.UnconfirmedHoldIds(), ct);
+            if (ctx.Draft.SeatsChanged) await sell.TryReleaseSeatsAsync(null, ct);
             ctx.Clear();
         }
 

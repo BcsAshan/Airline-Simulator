@@ -93,7 +93,8 @@ public class PassengerFare
 
 public class PassengerSegment
 {
-    public List<object> Seats { get; set; } = new();
+    /// <summary>Seat per leg of the segment (Phase 2 Seat service). Matched to a leg by departure/arrival station.</summary>
+    public List<PassengerSeat> Seats { get; set; } = new();
     public string PassengerKey { get; set; } = string.Empty;
     public DateTime? ActivityDate { get; set; }
     public string? BoardingSequence { get; set; }
@@ -144,4 +145,25 @@ public class LegInfo
     public string? PrbcCode { get; set; }
     public int Sold { get; set; }
     public LegStatus Status { get; set; }
+}
+
+/// <summary>A seat assigned to a passenger on one leg (Navitaire PassengerSeat).</summary>
+public class PassengerSeat
+{
+    public string CompartmentDesignator { get; set; } = "Y";
+    public int Penalty { get; set; }
+    public string UnitDesignator { get; set; } = string.Empty;
+    public PassengerSeatInformation? SeatInformation { get; set; }
+    public string DepartureStation { get; set; } = string.Empty;
+    public string ArrivalStation { get; set; } = string.Empty;
+    public string PassengerKey { get; set; } = string.Empty;
+    public string UnitKey { get; set; } = string.Empty;
+}
+
+public class PassengerSeatInformation
+{
+    public int Deck { get; set; } = 1;
+    public string? SeatSet { get; set; }
+    /// <summary>Seat property codes, e.g. WINDOW, AISLE, EXITROW, LEGROOM.</summary>
+    public List<string> PropertyList { get; set; } = new();
 }

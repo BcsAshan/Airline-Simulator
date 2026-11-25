@@ -64,6 +64,46 @@ public static class InternalDraftEndpoints
             return Envelope.Ok(new AddDraftPaymentResponse { PaymentKey = key });
         });
 
+        // ---- seats (Seat service) ----------------------------------------------------------------------
+
+        g.MapGet("/booking", async (HttpContext http, DraftStore drafts) =>
+        {
+            var draft = await BookingEndpoints.RequireDraftAsync(http, drafts);
+            BookingCalculator.Recalculate(draft.Booking);
+            return Envelope.Ok(new DraftBookingSnapshot { BookingId = draft.BookingId, Committed = draft.Committed, Booking = draft.Booking });
+        });
+
+        g.MapPost("/seats", async (AssignDraftSeatRequest request, HttpContext http, StatefulBookingExecutor exec, BookingCommands cmd, CancellationToken ct) =>
+        {
+            await exec.ExecuteAsync(http.GetSession(), c =>
+            {
+                var draft = c.Require();
+                SeatDraftOps.Assign(draft.Booking, request);
+                draft.SeatsChanged = true;
+                if (draft.Committed)
+                    cmd.AddHistory(draft, c, "SeatAssigned", $"Passenger {request.PassengerKey} seat {request.Seat.UnitDesignator}");
+                BookingCalculator.Recalculate(draft.Booking);
+                c.MarkChanged();
+                return Task.FromResult(true);
+            }, ct);
+            return Envelope.OkNoData();
+        });
+
+        g.MapPost("/seats/remove", async (RemoveDraftSeatRequest request, HttpContext http, StatefulBookingExecutor exec, BookingCommands cmd, CancellationToken ct) =>
+        {
+            await exec.ExecuteAsync(http.GetSession(), c =>
+            {
+                var draft = c.Require();
+                SeatDraftOps.Remove(draft.Booking, request);
+                draft.SeatsChanged = true;
+                if (draft.Committed) cmd.AddHistory(draft, c, "SeatRemoved", $"Passenger {request.PassengerKey}");
+                BookingCalculator.Recalculate(draft.Booking);
+                c.MarkChanged();
+                return Task.FromResult(true);
+            }, ct);
+            return Envelope.OkNoData();
+        });
+
         g.MapDelete("/payments/{paymentKey}", async (string paymentKey, HttpContext http, StatefulBookingExecutor exec, CancellationToken ct) =>
         {
             await exec.ExecuteAsync(http.GetSession(), c =>

@@ -1,4 +1,4 @@
-# Local stack: infrastructure + all Phase 1 services. Gateway on http://localhost:5000
+# Local stack: infrastructure + all Phase 1 services + the Phase 2 Seat service. Gateway on http://localhost:5000
 # Seq UI http://localhost:5341 · RabbitMQ UI http://localhost:15672 (guest/guest) · Jaeger http://localhost:16686 · Mailpit http://localhost:8025
 name: pss
 
@@ -15,6 +15,7 @@ x-service-env: &service-env
   Services__Shopping: http://shopping:8080
   Services__Booking: http://booking:8080
   Services__Payment: http://payment:8080
+  Services__Seat: http://seat:8080
 
 services:
   sqlserver:
@@ -129,6 +130,17 @@ services:
       ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Pss_Payment;User Id=sa;Password=Pss_Dev_Passw0rd!;TrustServerCertificate=True;Encrypt=False"
     depends_on: [redis, rabbitmq, sqlserver]
 
+  seat:
+    build:
+      context: .
+      args:
+        PROJECT: src/Services/Seat/Pss.Seat.Api/Pss.Seat.Api.csproj
+        DLL: Pss.Seat.Api.dll
+    environment:
+      <<: *service-env
+      ConnectionStrings__Sql: "Server=sqlserver,1433;Database=Pss_Seat;User Id=sa;Password=Pss_Dev_Passw0rd!;TrustServerCertificate=True;Encrypt=False"
+    depends_on: [redis, rabbitmq, sqlserver]
+
   notification:
     build:
       context: .
@@ -158,8 +170,9 @@ services:
       ReverseProxy__Clusters__booking__Destinations__d1__Address: http://booking:8080/
       ReverseProxy__Clusters__payment__Destinations__d1__Address: http://payment:8080/
       ReverseProxy__Clusters__notification__Destinations__d1__Address: http://notification:8080/
+      ReverseProxy__Clusters__seat__Destinations__d1__Address: http://seat:8080/
     ports: ["5000:8080"]
-    depends_on: [identity, refdata, shopping, booking, payment]
+    depends_on: [identity, refdata, shopping, booking, payment, seat]
 
 volumes:
   sqldata:

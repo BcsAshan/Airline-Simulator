@@ -21,6 +21,9 @@ public sealed class BookingDraft
 
     public List<DraftHold> Holds { get; set; } = new();
     public int PaymentSequence { get; set; }
+
+    /// <summary>A seat was assigned or removed since the last commit, so commit must sync seats with the Seat service.</summary>
+    public bool SeatsChanged { get; set; }
     public int CommentSequence { get; set; }
     public DateTime CreatedUtc { get; set; }
 

@@ -151,6 +151,61 @@ public static class DemoCarrier
         ("general", """{"carrierCode":"XX","carrierName":"Demo Air","sessionIdleTimeoutMinutes":15}"""),
     };
 
+    // ------------------------------------------------------------------ seats (Phase 2, Seat service)
+
+    /// <summary>
+    /// One cabin of a seat map. <paramref name="Columns"/> lists seat letters in seat groups separated by aisles,
+    /// e.g. "ABC DEF" (3-3) or "A DG K" (1-2-1). <paramref name="PreferredRows"/> = first N rows sold as "preferred".
+    /// <paramref name="Blocked"/> seats exist physically but are never assignable (crew rest, galley, etc.).
+    /// </summary>
+    public sealed record CabinLayout(string Compartment, int FirstRow, int LastRow, string Columns, int[] ExitRows, int PreferredRows, string[] Blocked);
+
+    /// <summary>Seat map per equipment type. Assignable seats per cabin equal the Equipment capacity above.</summary>
+    public sealed record SeatLayout(string EquipmentType, string Name, CabinLayout[] Cabins);
+
+    public static readonly SeatLayout[] SeatLayouts =
+    {
+        // A320: 30 × 6 = 180 Y
+        new("320", "Airbus A320", new[]
+        {
+            new CabinLayout("Y", 1, 30, "ABC DEF", new[] { 12, 13 }, 5, Array.Empty<string>()),
+        }),
+        // A321: 3 × 4 = 12 C; 30 × 6 = 180 Y − 4 blocked = 176 Y
+        new("321", "Airbus A321", new[]
+        {
+            new CabinLayout("C", 1, 3, "AC DF", Array.Empty<int>(), 0, Array.Empty<string>()),
+            new CabinLayout("Y", 4, 33, "ABC DEF", new[] { 16, 17 }, 5, new[] { "33A", "33B", "33E", "33F" }),
+        }),
+        // A330-300: 7 × 4 = 28 C (1-2-1); 30 × 9 = 270 Y − 1 blocked = 269 Y (3-3-3)
+        new("333", "Airbus A330-300", new[]
+        {
+            new CabinLayout("C", 1, 7, "A DG K", Array.Empty<int>(), 0, Array.Empty<string>()),
+            new CabinLayout("Y", 10, 39, "ABC DEG HJK", new[] { 24 }, 5, new[] { "39K" }),
+        }),
+        // ATR 72: 18 × 4 = 72 Y − 2 blocked = 70 Y
+        new("AT7", "ATR 72", new[]
+        {
+            new CabinLayout("Y", 1, 18, "AC DF", new[] { 12 }, 3, new[] { "1A", "1C" }),
+        }),
+    };
+
+    /// <summary>Seat fee groups (per passenger, per flight leg, USD).</summary>
+    public sealed record SeatFeeGroup(int Group, string Name, decimal Amount);
+
+    public static readonly SeatFeeGroup[] SeatFeeGroups =
+    {
+        new(1, "Standard", 8m),
+        new(2, "Preferred", 15m),
+        new(3, "Extra legroom", 25m),
+        new(4, "Business", 0m),
+    };
+
+    /// <summary>Fare product classes whose seats are free (Flex economy and Business).</summary>
+    public static readonly string[] SeatFeeWaivedProductClasses = { "EF", "BZ" };
+
+    /// <summary>Passenger types that may not sit in an emergency exit row.</summary>
+    public static readonly string[] ExitRowRestrictedPassengerTypes = { "CHD", "INF" };
+
     public static TimeZoneInfo TimeZoneFor(string stationCode)
     {
         var st = Stations.FirstOrDefault(s => s.Code == stationCode)

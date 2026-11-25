@@ -89,6 +89,7 @@ Press F5.
 | Booking      | http://localhost:5106   | http://localhost:5106/swagger    | Pss_Booking    |
 | Payment      | http://localhost:5107   | http://localhost:5107/swagger    | Pss_Payment    |
 | Notification | http://localhost:5108   | –                                | –              |
+| Seat         | http://localhost:5110   | http://localhost:5110/swagger    | Pss_Seat       |
 
 In Docker (option A) only the gateway (5000) and the tool UIs are published; the per-service Swagger pages are available in option B.
 
@@ -172,7 +173,7 @@ src/BuildingBlocks   Domain (errors), Keys (Navitaire key codec), Api (envelope,
                      Persistence (EF helpers), Observability (Serilog + OpenTelemetry)
 src/Contracts        Booking (public JSON model), Events (RabbitMQ), Internal (service-to-service DTOs)
 src/Gateway          YARP gateway with the blueprint §8.6 route table
-src/Services         Identity, RefData, Inventory, Pricing, Shopping, Booking, Payment, Notification
+src/Services         Identity, RefData, Inventory, Pricing, Shopping, Booking, Payment, Notification, Seat
 tools/Pss.SeedData   Demo carrier XX data shared by the seeders
 tests/Pss.UnitTests  Key codec (HAR keys), JSON/envelope, pricing, inventory math, booking rules
 docs/                API_REFERENCE.md

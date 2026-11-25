@@ -152,6 +152,8 @@ public sealed class BookingCommands(IRefDataClient refData, SellService sell, IC
             throw new DomainException(ErrorCodes.JourneyNotChangeable, "Cancelling a committed journey is delivered in Phase 2.");
 
         await sell.TryReleaseAsync(holds.Select(h => h.HoldId).ToList(), ct);
+        if (SeatDraftOps.HasSeats(draft.Booking)) await sell.TryReleaseSeatsAsync(SeatDraftOps.LegIds(journey), ct);
+        SeatDraftOps.RemoveJourneySeats(draft.Booking, journey);
         draft.Booking.Journeys.Remove(journey);
         draft.Holds.RemoveAll(h => h.JourneyKey == journeyKey);
         BookingCalculator.Recalculate(draft.Booking);
@@ -163,6 +165,7 @@ public sealed class BookingCommands(IRefDataClient refData, SellService sell, IC
     {
         if (ctx.Draft is null) return;
         await sell.TryReleaseAsync(ctx.Draft.UnconfirmedHoldIds(), ct);
+        if (ctx.Draft.SeatsChanged) await sell.TryReleaseSeatsAsync(null, ct);
         ctx.Clear();
     }
 

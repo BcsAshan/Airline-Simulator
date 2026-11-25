@@ -24,6 +24,7 @@ builder.Services.AddInternalServiceClient<IPricingClient, PricingClient>(builder
 builder.Services.AddInternalServiceClient<IInventoryClient, InventoryClient>(builder.Configuration, "Inventory", "http://localhost:5103");
 builder.Services.AddInternalServiceClient<IPaymentClient, PaymentClient>(builder.Configuration, "Payment", "http://localhost:5107");
 builder.Services.AddInternalServiceClient<IRefDataClient, RefDataClient>(builder.Configuration, "RefData", "http://localhost:5102");
+builder.Services.AddInternalServiceClient<ISeatClient, SeatClient>(builder.Configuration, "Seat", "http://localhost:5110");
 
 builder.Services.AddSingleton<DraftStore>();
 builder.Services.AddScoped<StatefulBookingExecutor>();

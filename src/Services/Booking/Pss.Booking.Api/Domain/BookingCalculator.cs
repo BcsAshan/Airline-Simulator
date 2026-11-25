@@ -47,31 +47,35 @@ public static class BookingCalculator
             b.JourneyTotals.TotalDiscount += jb.TotalDiscount;
         }
 
-        // Passenger fees (services). Seats/SSRs/name changes get their own buckets in Phase 2.
+        // Passenger fees. Seat fees get their own bucket (breakdown.passengers[k].seats / passengerTotals.seats);
+        // everything else is a service. SSRs/name changes get their own buckets later in Phase 2.
         decimal feesTotal = 0;
         var allServices = new ChargeTotal();
+        var allSeats = new ChargeTotal();
         foreach (var pax in booking.Passengers.Values)
         {
             var pb = new PassengerBreakdown { PassengerKey = pax.PassengerKey };
             if (pax.Fees.Count > 0)
             {
-                var ct = new ChargeTotal();
-                foreach (var sc in pax.Fees.SelectMany(f => f.ServiceCharges))
+                var services = Sum(pax.Fees.Where(f => f.Type != FeeType.SeatFee));
+                var seats = Sum(pax.Fees.Where(f => f.Type == FeeType.SeatFee));
+                if (services.Charges.Count > 0)
                 {
-                    ct.Total += sc.Amount;
-                    if (TaxTypes.Contains(sc.Type)) ct.Taxes += sc.Amount;
-                    ct.Charges.Add(sc);
+                    pb.Services = services;
+                    feesTotal += services.Total;
+                    Add(allServices, services);
                 }
-                ct.Total = Round(ct.Total);
-                pb.Services = ct;
-                feesTotal += ct.Total;
-                allServices.Total += ct.Total;
-                allServices.Taxes += ct.Taxes;
-                allServices.Charges.AddRange(ct.Charges);
+                if (seats.Charges.Count > 0)
+                {
+                    pb.Seats = seats;
+                    feesTotal += seats.Total;
+                    Add(allSeats, seats);
+                }
             }
             b.Passengers[pax.PassengerKey] = pb;
         }
         if (allServices.Charges.Count > 0) b.PassengerTotals.Services = allServices;
+        if (allSeats.Charges.Count > 0) b.PassengerTotals.Seats = allSeats;
 
         var total = Round(b.JourneyTotals.TotalAmount + feesTotal);
         var counted = booking.Payments.Where(CountsTowardsBalance).Sum(p => p.Amounts.Amount);
@@ -85,6 +89,27 @@ public static class BookingCalculator
 
         booking.Breakdown = b;
         booking.Info.PaidStatus = b.BalanceDue > 0 ? PaidStatus.UnderPaid : b.BalanceDue == 0 ? PaidStatus.PaidInFull : PaidStatus.OverPaid;
+    }
+
+    private static ChargeTotal Sum(IEnumerable<PassengerFee> fees)
+    {
+        var total = new ChargeTotal();
+        foreach (var sc in fees.SelectMany(f => f.ServiceCharges))
+        {
+            total.Total += sc.Amount;
+            if (TaxTypes.Contains(sc.Type)) total.Taxes += sc.Amount;
+            total.Charges.Add(sc);
+        }
+        total.Total = Round(total.Total);
+        total.Taxes = Round(total.Taxes);
+        return total;
+    }
+
+    private static void Add(ChargeTotal into, ChargeTotal from)
+    {
+        into.Total = Round(into.Total + from.Total);
+        into.Taxes = Round(into.Taxes + from.Taxes);
+        into.Charges.AddRange(from.Charges);
     }
 
     /// <summary>Declined payments never reduce the balance.</summary>

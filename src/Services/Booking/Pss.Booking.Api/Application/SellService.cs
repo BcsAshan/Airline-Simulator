@@ -14,6 +14,7 @@ public sealed class SellService(
     IShoppingClient shopping,
     IPricingClient pricing,
     IInventoryClient inventory,
+    ISeatClient seatClient,
     IRefDataClient refData,
     IConfiguration configuration,
     TimeProvider clock,
@@ -280,6 +281,22 @@ public sealed class SellService(
         for (var i = 1; i < intervals.Count; i++)
             if (intervals[i].Start < intervals[i - 1].End)
                 throw new DomainException(ErrorCodes.JourneyOverlap, "Journeys in a booking must not overlap in time.");
+    }
+
+    /// <summary>
+    /// Releases the session's held (uncommitted) seats in the Seat service — all legs when <paramref name="legIds"/> is null.
+    /// Best effort: the Seat service also releases them on SessionExpired and in its sweeper.
+    /// </summary>
+    public async Task TryReleaseSeatsAsync(IReadOnlyCollection<long>? legIds, CancellationToken ct)
+    {
+        try
+        {
+            await seatClient.ReleaseSessionAsync(legIds, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not release held seats; they are released when the session ends");
+        }
     }
 
     public async Task TryReleaseAsync(IReadOnlyCollection<long> holdIds, CancellationToken ct)
