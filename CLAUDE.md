@@ -16,8 +16,10 @@ Real request/response shapes: HAR files and Postman collections in `../assets/fi
 | `requests/booking-flow.http` | Same happy path for VS/Rider/VS Code | the happy path changes |
 | `CLAUDE.md` (this file) | Status, architecture, conventions, next steps | every session |
 
-There is no UI yet; Postman / `.http` are the way to exercise the system. When you add an endpoint, the definition of
-done includes: API_REFERENCE.md section + Postman request (with a test script) + status table below.
+A Next.js customer/agent website lives in the sibling folder `../SimulatorUI` (its own `CLAUDE.md`; it calls the
+gateway through a `/pss/*` rewrite). Postman / `.http` remain the way to test the API itself. When you add an endpoint,
+the definition of done includes: API_REFERENCE.md section + Postman request (with a test script) + status table below.
+If you change a request/response shape the UI uses, update `../SimulatorUI/src/lib/pss.ts` / `types.ts` too.
 
 ## Current status (last updated 2026-11-25)
 
