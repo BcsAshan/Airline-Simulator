@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>Pss.Shopping.Api</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\Pss.BuildingBlocks.Api\Pss.BuildingBlocks.Api.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Pss.BuildingBlocks.Keys\Pss.BuildingBlocks.Keys.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Pss.BuildingBlocks.Session\Pss.BuildingBlocks.Session.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\Pss.BuildingBlocks.Observability\Pss.BuildingBlocks.Observability.csproj" />
+    <ProjectReference Include="..\..\..\Contracts\Pss.Contracts.Internal\Pss.Contracts.Internal.csproj" />
+  </ItemGroup>
+</Project>

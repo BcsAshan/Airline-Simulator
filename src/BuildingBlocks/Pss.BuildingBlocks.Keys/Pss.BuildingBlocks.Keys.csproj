@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pss.BuildingBlocks.Keys</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pss.BuildingBlocks.Domain\Pss.BuildingBlocks.Domain.csproj" />
+  </ItemGroup>
+</Project>

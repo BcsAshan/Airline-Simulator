@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="FluentAssertions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BuildingBlocks\Pss.BuildingBlocks.Api\Pss.BuildingBlocks.Api.csproj" />
+    <ProjectReference Include="..\..\src\BuildingBlocks\Pss.BuildingBlocks.Keys\Pss.BuildingBlocks.Keys.csproj" />
+    <ProjectReference Include="..\..\src\Services\Booking\Pss.Booking.Api\Pss.Booking.Api.csproj" />
+    <ProjectReference Include="..\..\src\Services\Inventory\Pss.Inventory.Api\Pss.Inventory.Api.csproj" />
+    <ProjectReference Include="..\..\src\Services\Pricing\Pss.Pricing.Api\Pss.Pricing.Api.csproj" />
+    <ProjectReference Include="..\..\src\Services\Payment\Pss.Payment.Api\Pss.Payment.Api.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pss.BuildingBlocks.Session</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="StackExchange.Redis" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pss.BuildingBlocks.Api\Pss.BuildingBlocks.Api.csproj" />
+    <ProjectReference Include="..\Pss.BuildingBlocks.Domain\Pss.BuildingBlocks.Domain.csproj" />
+    <ProjectReference Include="..\..\Contracts\Pss.Contracts.Booking\Pss.Contracts.Booking.csproj" />
+  </ItemGroup>
+</Project>

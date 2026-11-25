@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pss.Contracts.Internal</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Pss.Contracts.Booking\Pss.Contracts.Booking.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\Pss.BuildingBlocks.Keys\Pss.BuildingBlocks.Keys.csproj" />
+  </ItemGroup>
+</Project>

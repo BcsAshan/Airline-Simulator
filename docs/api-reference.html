@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pss booking API — Demo Air (XX)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --terminal: #EEF1F4;     /* page: terminal floor */
+    --panel: #FFFFFF;
+    --ink: #14213D;          /* wayfinding navy */
+    --ink-soft: #4A5672;
+    --rule: #D3D9E2;
+    --sign: #FFCC00;         /* wayfinding yellow */
+    --get: #1F5FBF;
+    --post: #14213D;
+    --put: #0F7C78;
+    --delete: #C8312B;
+    --ok: #1E7B45;
+    --sign-font: "Bahnschrift", "DIN Alternate", "DIN 2014", "Roboto Condensed", "Arial Narrow", sans-serif;
+    --body-font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --code-font: "Cascadia Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body { margin: 0; background: var(--terminal); color: var(--ink); font: 16px/1.55 var(--body-font); }
+  a { color: var(--get); }
+  :focus-visible { outline: 3px solid var(--get); outline-offset: 2px; }
+  code, pre, .mono { font-family: var(--code-font); font-size: 0.86em; }
+
+  /* ---------- layout ---------- */
+  .shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+  nav.wayfinding { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--ink); color: #fff; padding: 22px 16px; }
+  main { padding: 0 clamp(16px, 4vw, 56px) 80px; max-width: 1180px; }
+
+  /* ---------- sidebar: overhead signs ---------- */
+  .brand { font-family: var(--sign-font); font-size: 1.35rem; font-weight: 700; letter-spacing: 0.01em; margin: 0 0 4px; }
+  .brand-sub { font-size: 0.85rem; color: #B9C3D6; margin: 0 0 22px; }
+  nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  nav a.sign-link { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 4px; color: var(--ink); background: var(--sign);
+    font-family: var(--sign-font); font-weight: 600; font-size: 0.98rem; text-decoration: none; }
+  nav a.sign-link:hover { background: #FFE066; }
+  nav .pict { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 3px; background: var(--ink); color: var(--sign); font-size: 0.85rem; flex: none; }
+  nav .meta { margin-top: 26px; font-size: 0.82rem; color: #B9C3D6; line-height: 1.5; }
+  nav .meta code { color: #fff; }
+
+  /* ---------- hero ---------- */
+  .hero { padding: 48px 0 28px; }
+  .hero h1 { font-family: var(--sign-font); font-weight: 700; font-size: clamp(2.2rem, 5vw, 3.6rem); line-height: 1.02; margin: 0 0 14px; letter-spacing: -0.01em; }
+  .hero p.lede { max-width: 66ch; font-size: 1.08rem; color: var(--ink-soft); margin: 0 0 30px; }
+  .facts { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 0 0 34px; padding: 0; list-style: none; font-size: 0.95rem; }
+  .facts li strong { font-family: var(--sign-font); font-size: 1.15rem; display: block; }
+
+  /* the route: booking flow as a journey with stops */
+  .route { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 22px 22px 16px; }
+  .route h2 { font-family: var(--sign-font); font-size: 1.2rem; margin: 0 0 4px; }
+  .route .hint { margin: 0 0 18px; color: var(--ink-soft); font-size: 0.92rem; }
+  .stops { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); position: relative; }
+  .stops::before { content: ""; position: absolute; left: 5%; right: 5%; top: 17px; height: 4px; background: var(--ink); border-radius: 2px;
+    transform-origin: left center; animation: draw 1.4s cubic-bezier(.6,.1,.2,1) both; }
+  @keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  .stops li { position: relative; text-align: center; padding: 0 4px; }
+  .stops button { all: unset; cursor: pointer; display: grid; justify-items: center; gap: 6px; width: 100%; border-radius: 6px; padding: 0 0 6px; }
+  .stops button:focus-visible { outline: 3px solid var(--get); outline-offset: 2px; }
+  .stop-dot { width: 38px; height: 38px; border-radius: 50%; background: var(--sign); border: 4px solid var(--ink); display: grid; place-items: center;
+    font-family: var(--sign-font); font-weight: 700; position: relative; z-index: 1; transition: transform .15s; }
+  .stops button:hover .stop-dot, .stops button[aria-pressed="true"] .stop-dot { transform: scale(1.12); background: var(--ink); color: var(--sign); }
+  .stop-name { font-family: var(--sign-font); font-weight: 600; font-size: 0.92rem; line-height: 1.15; }
+  .stop-path { font-family: var(--code-font); font-size: 0.68rem; color: var(--ink-soft); word-break: break-all; line-height: 1.3; }
+  .stop-detail { margin-top: 14px; border-top: 1px dashed var(--rule); padding-top: 12px; min-height: 52px; font-size: 0.94rem; }
+  .stop-detail .mono { background: var(--terminal); padding: 1px 6px; border-radius: 3px; }
+
+  /* ---------- section signs (the one bold element) ---------- */
+  section { padding-top: 54px; }
+  .sign { display: inline-flex; align-items: center; gap: 14px; background: var(--sign); color: var(--ink); padding: 10px 18px 10px 10px; border-radius: 6px; margin: 0 0 18px; }
+  .sign .pict { width: 40px; height: 40px; border-radius: 4px; background: var(--ink); color: var(--sign); display: grid; place-items: center; font-size: 1.25rem; }
+  .sign h2 { font-family: var(--sign-font); font-size: 1.55rem; font-weight: 700; margin: 0; line-height: 1; }
+  section > p { max-width: 74ch; color: var(--ink-soft); }
+  h3 { font-family: var(--sign-font); font-size: 1.15rem; margin: 28px 0 10px; }
+
+  /* basics grid */
+  .basics { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .basics article { background: var(--panel); border-left: 5px solid var(--ink); padding: 14px 18px; border-radius: 0 8px 8px 0; }
+  .basics article h3 { margin-top: 0; }
+  .basics p, .basics li { font-size: 0.94rem; }
+  .basics ul { padding-left: 18px; margin: 6px 0; }
+
+  pre.json { background: #F6F8FB; border: 1px solid var(--rule); border-radius: 6px; padding: 12px 14px; overflow-x: auto; margin: 6px 0 0; line-height: 1.45; color: #1B2540; }
+
+  table { border-collapse: collapse; width: 100%; background: var(--panel); font-size: 0.92rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-family: var(--sign-font); font-weight: 600; background: #E3E8EF; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; }
+
+  /* ---------- endpoints: flight-strip rows ---------- */
+  .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 14px; }
+  .filters input[type="search"] { flex: 1 1 260px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 6px; font: inherit; background: #fff; }
+  .filters select { padding: 9px 10px; border: 2px solid var(--ink); border-radius: 6px; font: inherit; background: #fff; }
+  .chip-toggle { font: 600 0.82rem var(--code-font); padding: 7px 10px; border-radius: 5px; border: 2px solid currentColor; background: #fff; cursor: pointer; }
+  .chip-toggle[aria-pressed="false"] { opacity: 0.38; }
+  .count { font-size: 0.9rem; color: var(--ink-soft); margin: 0 0 10px; }
+
+  .service-group { margin: 22px 0 0; }
+  .service-group h3 { display: flex; align-items: baseline; gap: 12px; }
+  .service-group h3 small { font-family: var(--body-font); font-weight: 400; font-size: 0.86rem; color: var(--ink-soft); }
+  .strips { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+  .strip + .strip { border-top: 1px solid var(--rule); }
+  .strip > button { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 74px minmax(0, 1.25fr) minmax(0, 1fr) 96px 40px; gap: 14px; align-items: center; width: 100%; padding: 11px 14px; }
+  .strip > button:hover { background: #F4F7FB; }
+  .strip > button:focus-visible { outline: 3px solid var(--get); outline-offset: -3px; }
+  .method { font: 700 0.78rem var(--code-font); text-align: center; padding: 5px 0; border-radius: 4px; color: #fff; }
+  .m-GET { background: var(--get); } .m-POST { background: var(--post); } .m-PUT, .m-PATCH { background: var(--put); } .m-DELETE { background: var(--delete); }
+  .chip-toggle.m-GET { color: var(--get); background: #fff; } .chip-toggle.m-POST { color: var(--post); background: #fff; }
+  .chip-toggle.m-PUT { color: var(--put); background: #fff; } .chip-toggle.m-DELETE { color: var(--delete); background: #fff; }
+  .path { font-family: var(--code-font); font-size: 0.86rem; word-break: break-all; }
+  .summary { font-size: 0.92rem; color: var(--ink-soft); }
+  .auth { font-size: 0.78rem; font-weight: 600; text-align: center; padding: 3px 6px; border-radius: 999px; border: 1.5px solid; white-space: nowrap; }
+  .auth-None { color: #5B6680; } .auth-Anonymous { color: var(--get); } .auth-Agent { color: var(--delete); }
+  .status { font: 600 0.82rem var(--code-font); text-align: right; color: var(--ok); }
+  .detail { display: none; padding: 4px 14px 18px 102px; border-top: 1px dashed var(--rule); background: #FBFCFE; }
+  .strip.open .detail { display: block; }
+  .strip.open > button { background: #F4F7FB; }
+  .detail h4 { font-family: var(--sign-font); font-size: 0.98rem; margin: 14px 0 4px; }
+  .detail ul { margin: 4px 0; padding-left: 18px; font-size: 0.93rem; }
+  .detail .pre-head { display: flex; justify-content: space-between; align-items: end; }
+  .copy { font: 600 0.78rem var(--body-font); border: 1.5px solid var(--ink); background: #fff; color: var(--ink); border-radius: 4px; padding: 3px 9px; cursor: pointer; }
+  .copy:hover { background: var(--sign); }
+  .err-code { font-family: var(--code-font); font-size: 0.84em; }
+  .empty { padding: 28px; text-align: center; color: var(--ink-soft); background: var(--panel); border: 1px dashed var(--rule); border-radius: 8px; }
+
+  /* ---------- departures board (light) ---------- */
+  .board { background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; }
+  .board table { font-family: var(--sign-font); font-size: 1rem; }
+  .board th { background: var(--ink); color: var(--sign); font-weight: 600; }
+  .board td.flight { font-weight: 700; }
+  .board td.cnx { color: var(--ink-soft); font-family: var(--body-font); font-size: 0.9rem; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 0.8rem; font-family: var(--body-font); }
+  .b-dom { background: #E3F1E8; color: var(--ok); }
+  .b-int { background: #E4ECF9; color: var(--get); }
+
+  .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+
+  footer { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--rule); color: var(--ink-soft); font-size: 0.88rem; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 980px) {
+    .shell { grid-template-columns: 1fr; }
+    nav.wayfinding { position: static; height: auto; }
+    nav ul { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+    nav .meta { display: none; }
+    .stops { grid-template-columns: 1fr; gap: 10px; }
+    .stops::before { left: 17px; right: auto; top: 6px; bottom: 6px; width: 4px; height: auto; transform-origin: top center; animation-name: drawY; }
+    @keyframes drawY { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    .stops li { text-align: left; }
+    .stops button { grid-template-columns: 38px 1fr; justify-items: start; align-items: center; column-gap: 12px; }
+    .stop-dot { grid-row: span 2; }
+    .strip > button { grid-template-columns: 64px 1fr; }
+    .strip .summary { grid-column: 2; }
+    .strip .auth { justify-self: start; grid-column: 2; }
+    .strip .status { display: none; }
+    .detail { padding-left: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .stops::before { animation: none; }
+    .stop-dot { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<nav class="wayfinding" aria-label="Sections">
+  <p class="brand">Pss booking API</p>
+  <p class="brand-sub">Demo Air (XX), Phase 1</p>
+  <ul>
+    <li><a class="sign-link" href="#flow"><span class="pict" aria-hidden="true">➜</span>Booking flow</a></li>
+    <li><a class="sign-link" href="#basics"><span class="pict" aria-hidden="true">i</span>Basics</a></li>
+    <li><a class="sign-link" href="#endpoints"><span class="pict" aria-hidden="true">⇄</span>Endpoints</a></li>
+    <li><a class="sign-link" href="#errors"><span class="pict" aria-hidden="true">!</span>Error codes</a></li>
+    <li><a class="sign-link" href="#enums"><span class="pict" aria-hidden="true">#</span>Enumerations</a></li>
+    <li><a class="sign-link" href="#flights"><span class="pict" aria-hidden="true">✈</span>Demo flights</a></li>
+    <li><a class="sign-link" href="#testdata"><span class="pict" aria-hidden="true">▭</span>Users &amp; cards</a></li>
+  </ul>
+  <div class="meta">
+    Gateway<br><code>http://localhost:5000</code><br><br>
+    Postman: <code>postman/</code><br>
+    Markdown version: <code>docs/API_REFERENCE.md</code>
+  </div>
+</nav>
+
+<main>
+
+<header class="hero" id="flow">
+  <h1>Book a seat in ten calls</h1>
+  <p class="lede">The Pss engine follows the Navitaire dotREZ Digital API. A session holds one booking in progress; you shape it call by call, then commit it to get a record locator. Every request goes through the gateway at <code>http://localhost:5000</code>.</p>
+  <ul class="facts">
+    <li><strong>42</strong> endpoints live</li>
+    <li><strong>8</strong> services behind one gateway</li>
+    <li><strong>15 min</strong> idle session timeout</li>
+    <li><strong>USD</strong> only in Phase 1</li>
+  </ul>
+
+  <div class="route">
+    <h2>The booking journey</h2>
+    <p class="hint">Select a stop to see what it does. Each one opens the matching endpoint below.</p>
+    <ol class="stops" id="stops"></ol>
+    <div class="stop-detail" id="stopDetail" aria-live="polite">Start at stop 1: get a token. The token is a handle to your session; send it as <span class="mono">Authorization: Bearer …</span> on every other call.</div>
+  </div>
+</header>
+
+<section id="basics">
+  <div class="sign"><span class="pict" aria-hidden="true">i</span><h2>Basics</h2></div>
+  <div class="basics">
+    <article>
+      <h3>Tokens and sessions</h3>
+      <p>Get a token from <code>POST /api/auth/v1/token/anonymous</code> (web customers) or <code>/token/user</code> (agents). The session ends after 15 idle minutes or on logout, and held seats are released. An expired session returns 401 even if the token is still valid.</p>
+      <p>A raw token without <code>Bearer </code> is also accepted.</p>
+    </article>
+    <article>
+      <h3>Booking in state</h3>
+      <ul>
+        <li><code>/booking/…</code> (singular) changes the booking held in your session. No record locator in the URL.</li>
+        <li><code>/bookings/…</code> (plural) reads a stored booking by record locator.</li>
+        <li>Nothing is saved until commit. After commit you can change it and commit again with <code>PUT</code>.</li>
+        <li>One stateful call at a time per session; a second one waits 5 s, then gets 409.</li>
+      </ul>
+    </article>
+    <article>
+      <h3>Every response has the same wrapper</h3>
+<pre class="json">{ "data": { … } }
+{ "data": null }                      // commands
+{ "data": null,
+  "errors": [ { "code": "nsk:Booking:NoBookingInState",
+                "message": "…", "type": "Validation" } ] }</pre>
+    </article>
+    <article>
+      <h3>Formats</h3>
+      <ul>
+        <li>Enums come back as numbers; send a number or a name (<code>"Male"</code> or <code>1</code>).</li>
+        <li>Dates: <code>2026-12-10</code>, <code>2026-12-1</code> or ISO. UTC values end in <code>Z</code>; station-local times have no offset.</li>
+        <li>Keyed collections are objects, not arrays: <code>passengers</code>, <code>contacts</code>, <code>faresAvailable</code>.</li>
+        <li>Keys are opaque Base64. The first adult is always <code>MCFBRFQ-</code> (<code>0!ADT</code>).</li>
+      </ul>
+    </article>
+  </div>
+
+  <h3>Status codes</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Code</th><th>When</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">200</td><td>Reads, updates, sell (returns the booking), re-commit with PUT</td></tr>
+      <tr><td class="mono">201</td><td>Token, contact, payment, first commit — with a <code>Location</code> header</td></tr>
+      <tr><td class="mono">304</td><td>Reference data unchanged (<code>If-None-Match</code> matched the <code>ETag</code>)</td></tr>
+      <tr><td class="mono">400</td><td>Validation or business rule — most business errors</td></tr>
+      <tr><td class="mono">401</td><td>No token, expired session, or an agent-only endpoint</td></tr>
+      <tr><td class="mono">404</td><td>Stored booking not found (stateless read)</td></tr>
+      <tr><td class="mono">409</td><td>Concurrent call on the session, or the booking changed in another session</td></tr>
+      <tr><td class="mono">502 / 503</td><td>A service behind the gateway is down, or the route belongs to a later phase</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="endpoints">
+  <div class="sign"><span class="pict" aria-hidden="true">⇄</span><h2>Endpoints</h2></div>
+  <p>Select a row to see the request body, a sample response, rules and the errors it can return.</p>
+  <div class="filters" role="search">
+    <label class="visually-hidden" for="q" hidden>Search endpoints</label>
+    <input type="search" id="q" placeholder="Search by path, purpose or error code" aria-label="Search endpoints">
+    <button class="chip-toggle m-GET" data-method="GET" aria-pressed="true">GET</button>
+    <button class="chip-toggle m-POST" data-method="POST" aria-pressed="true">POST</button>
+    <button class="chip-toggle m-PUT" data-method="PUT" aria-pressed="true">PUT / PATCH</button>
+    <button class="chip-toggle m-DELETE" data-method="DELETE" aria-pressed="true">DELETE</button>
+    <select id="authFilter" aria-label="Filter by permission">
+      <option value="">Any permission</option>
+      <option value="None">No token</option>
+      <option value="Anonymous">Any session</option>
+      <option value="Agent">Agent only</option>
+    </select>
+  </div>
+  <p class="count" id="count"></p>
+  <div id="endpointList"></div>
+</section>
+
+<section id="errors">
+  <div class="sign"><span class="pict" aria-hidden="true">!</span><h2>Error codes</h2></div>
+  <p>Codes follow Navitaire's <code>namespace:Area:Reason</code> pattern. Ones marked “ours” have no documented Navitaire equivalent.</p>
+  <div class="filters"><input type="search" id="errQ" placeholder="Filter error codes" aria-label="Filter error codes"></div>
+  <div class="table-wrap"><table id="errorTable">
+    <thead><tr><th>Code</th><th>HTTP</th><th>Meaning</th><th>Origin</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<section id="enums">
+  <div class="sign"><span class="pict" aria-hidden="true">#</span><h2>Enumerations</h2></div>
+  <div class="table-wrap"><table id="enumTable">
+    <thead><tr><th>Enum</th><th>Values</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</section>
+
+<section id="flights">
+  <div class="sign"><span class="pict" aria-hidden="true">✈</span><h2>Demo flights</h2></div>
+  <p>Carrier XX flies these every day, created for 30 days from the first start of Inventory. CMB to LHR (and back) is sold as a connection through Dubai.</p>
+  <div class="board"><table id="board">
+    <thead><tr><th>Flight</th><th>From</th><th>To</th><th>Departs (local)</th><th>Block time</th><th>Aircraft</th><th>Type</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+
+  <div class="two-col">
+    <div>
+      <h3>Fares CMB ⇄ DXB, one way, USD</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Class</th><th>Product</th><th>Cabin</th><th>Fare</th></tr></thead>
+        <tbody>
+          <tr><td>L</td><td>EC Economy Lite</td><td>Y</td><td>180</td></tr>
+          <tr><td>Q</td><td>EC Economy Lite</td><td>Y</td><td>216</td></tr>
+          <tr><td>H</td><td>ES Economy Standard</td><td>Y</td><td>261</td></tr>
+          <tr><td>M</td><td>ES Economy Standard</td><td>Y</td><td>315</td></tr>
+          <tr><td>B</td><td>EF Economy Flex</td><td>Y</td><td>378</td></tr>
+          <tr><td>Y</td><td>EF Economy Flex</td><td>Y</td><td>468</td></tr>
+          <tr><td>D</td><td>BZ Business</td><td>C</td><td>720</td></tr>
+          <tr><td>C</td><td>BZ Business</td><td>C</td><td>900</td></tr>
+          <tr><td>J</td><td>BZ Business</td><td>C</td><td>1080</td></tr>
+        </tbody>
+      </table></div>
+      <p style="font-size:.9rem;color:var(--ink-soft)">Other markets scale from their base fare: SIN 160, BKK 150, MLE 90, DEL 140, KUL 150, JAF 45, DXB–LHR 420.</p>
+    </div>
+    <div>
+      <h3>Taxes and discounts</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Code</th><th>What</th><th>Amount</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">LKD</td><td>Sri Lanka embarkation levy (international departures from LK)</td><td>60</td></tr>
+          <tr><td class="mono">AEP</td><td>UAE passenger service charge (international departures from AE)</td><td>20</td></tr>
+          <tr><td class="mono">GBA</td><td>UK air passenger duty (adults only)</td><td>95</td></tr>
+          <tr><td class="mono">YQ</td><td>Fuel surcharge, every segment</td><td>25</td></tr>
+          <tr><td class="mono">VAT</td><td>Sri Lanka VAT on domestic flights</td><td>8 %</td></tr>
+          <tr><td class="mono">CHD</td><td>Child discount on the fare</td><td>−25 %</td></tr>
+        </tbody>
+      </table></div>
+      <p style="font-size:.9rem;color:var(--ink-soft)">Example: one adult CMB→DXB in class L pays 180 + 60 + 25 = <strong>265 USD</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="testdata">
+  <div class="sign"><span class="pict" aria-hidden="true">▭</span><h2>Users &amp; test cards</h2></div>
+  <div class="two-col">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Who</th><th>Domain</th><th>Username</th><th>Password</th></tr></thead>
+      <tbody>
+        <tr><td>Anonymous web user</td><td colspan="3">Call <code>POST /api/auth/v1/token/anonymous</code></td></tr>
+        <tr><td>Agent</td><td class="mono">DEF</td><td class="mono">agent01</td><td class="mono">Password1!</td></tr>
+        <tr><td>Customer</td><td class="mono">WWW</td><td class="mono">customer@demo.test</td><td class="mono">Password1!</td></tr>
+      </tbody>
+    </table></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Card number</th><th>Method</th><th>Result at commit</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">4111111111111111</td><td>VI</td><td>Approved</td></tr>
+        <tr><td class="mono">5555555555554444</td><td>MC</td><td>Approved</td></tr>
+        <tr><td class="mono">4000000000000002</td><td>VI</td><td>Declined — do not honour</td></tr>
+        <tr><td class="mono">4000000000009995</td><td>VI</td><td>Declined — insufficient funds</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <p>Use any future expiry (<code>12/2030</code>) and any 3-digit CVV. Itinerary emails arrive in Mailpit at <a href="http://localhost:8025">localhost:8025</a>; logs are in Seq at <a href="http://localhost:5341">localhost:5341</a>.</p>
+</section>
+
+<footer>
+  Pss engine, Phase 1. Generated from the implementation in <code>Project/src</code>. The Markdown reference (<code>docs/API_REFERENCE.md</code>) and Postman collection (<code>postman/</code>) cover the same endpoints. Not built yet: infants, seats, SSRs, change/cancel/refund, check-in, 3-D Secure.
+</footer>
+</main>
+</div>
+
+<script>
+/* ====================================================================================
+   Data — keep in sync with docs/API_REFERENCE.md
+   ==================================================================================== */
+const SERVICES = {
+  Identity: "Tokens, sessions and logout",
+  RefData: "Stations, markets, countries, passenger types, settings — all ETag-cached",
+  Shopping: "Flight availability and fares",
+  Booking: "The booking in your session: sell, passengers, contacts",
+  Payment: "Payment methods and payments on the booking",
+  Commit: "Saving the booking and getting it back",
+  Agent: "Agent session required"
+};
+
+const TOKEN_RESPONSE = `{
+  "data": {
+    "token": "eyJhbGciOiJSUzI1NiIs…",
+    "expires": "2026-11-26T09:15:02Z",
+    "idleTimeoutInMinutes": 15,
+    "cultureCode": "en-US",
+    "currencyCode": "USD",
+    "roleCode": "WWWA",
+    "locationCode": "WWW",
+    "domainCode": "WW2",
+    "organizationCode": "SYSTEM",
+    "userKey": "1",
+    "personKey": null,
+    "multiFactorRequired": false
+  }
+}`;
+
+const BOOKING_RESPONSE = `{
+  "data": {
+    "bookingKey": null,
+    "recordLocator": null,
+    "currencyCode": "USD",
+    "info": { "status": 0, "paidStatus": 0, "priceStatus": 2, "channelType": 5 },
+    "breakdown": {
+      "totalAmount": 265, "balanceDue": 265, "authorizedBalanceDue": 265,
+      "journeyTotals": { "totalAmount": 265, "totalTax": 85, "totalDiscount": 0 }
+    },
+    "contacts": {},
+    "passengers": {
+      "MCFBRFQ-": { "passengerKey": "MCFBRFQ-", "passengerTypeCode": "ADT",
+                    "name": { "first": null, "last": null }, "fees": [] }
+    },
+    "journeys": [
+      { "journeyKey": "WFh_IDEwMX4gfn5DTUJ_…", "flightType": 1, "stops": 0,
+        "segments": [ { "identifier": { "identifier": "101", "carrierCode": "XX" },
+                        "status": 3, "cabinOfService": "Y",
+                        "fares": [ { "classOfService": "L", "fareBasisCode": "LECOW" } ] } ] }
+    ],
+    "payments": []
+  }
+}`;
+
+const ENDPOINTS = [
+  // ---------------- Identity
+  { id: "token-anon", svc: "Identity", m: "POST", path: "/api/auth/v1/token/anonymous", auth: "None", status: "201",
+    sum: "Start an anonymous session",
+    body: `{ "applicationName": "dotREZWeb" }`, resp: TOKEN_RESPONSE,
+    notes: ["Body is optional; no Authorization header.", "expires is the JWT lifetime (24 h). The session still ends after 15 idle minutes."],
+    errors: [["nsk:Authentication:InvalidApplication", "No anonymous user configured for the application"]] },
+  { id: "token-user", svc: "Identity", m: "POST", path: "/api/auth/v1/token/user", auth: "None", status: "201",
+    sum: "Log on as an agent or customer",
+    body: `{
+  "applicationName": "dotREZWeb",
+  "credentials": { "domain": "DEF", "username": "agent01", "password": "Password1!", "location": "CMB" }
+}`, resp: TOKEN_RESPONSE,
+    notes: ["domain defaults to DEF; location is optional.", "Anonymous (virtual) users cannot log on here."],
+    errors: [["nsk:Authentication:InvalidCredentials", "401 — wrong user or password"], ["nsk-server:PasswordExpired", "Password must be changed first"], ["core:Validation:NullRequest", "credentials missing"]] },
+  { id: "token-get", svc: "Identity", m: "GET", path: "/api/auth/v1/token", auth: "Anonymous", status: "200",
+    sum: "Read session details",
+    resp: `{
+  "data": {
+    "sessionId": "1f0c…", "userType": 3, "agentCode": "ApiAnonymous", "roleCode": "WWWA",
+    "domainCode": "WW2", "organizationCode": "SYSTEM", "locationCode": "WWW",
+    "applicationName": "dotREZWeb", "cultureCode": "en-US", "currencyCode": "USD",
+    "idleTimeoutInMinutes": 15, "userKey": "1", "personKey": null
+  }
+}`, notes: ["userType: 1 Customer, 2 Agent, 3 Anonymous."] },
+  { id: "token-put", svc: "Identity", m: "PUT", path: "/api/auth/v1/token", auth: "Anonymous", status: "200",
+    sum: "Keep the session alive and get a fresh token", resp: TOKEN_RESPONSE },
+  { id: "token-delete", svc: "Identity", m: "DELETE", path: "/api/auth/v1/token", auth: "Anonymous", status: "200",
+    sum: "Log out: end the session and release held seats", resp: `{ "data": null }`,
+    notes: ["Always call this when a flow is finished. The booking in state is dropped."] },
+  { id: "token-legacy", svc: "Identity", m: "POST", path: "/api/nsk/v2/token", auth: "None", status: "201",
+    sum: "Legacy token route used by the Navitaire Postman samples",
+    body: `{}`, resp: `{ "data": { "token": "eyJ…", "idleTimeoutInMinutes": 15 } }`,
+    notes: ["Empty body gives an anonymous session; a body with credentials logs the user on.", "Also: POST /api/nsk/v1/token and GET/PUT/DELETE /api/nsk/v1|v2/token."] },
+
+  // ---------------- RefData
+  { id: "stations", svc: "RefData", m: "GET", path: "/api/nsk/v1/resources/stations", auth: "Anonymous", status: "200",
+    sum: "All stations (airports)",
+    resp: `{ "data": [ { "stationCode": "CMB", "name": "Colombo Bandaranaike Intl", "shortName": "Colombo Bandaranaike Intl",
+             "countryCode": "LK", "macCode": null, "currencyCode": "LKR", "timeZoneCode": "Asia/Colombo", "inActive": false } ] }`,
+    notes: ["Returns an ETag; send it back as If-None-Match to get 304 with no body."] },
+  { id: "station", svc: "RefData", m: "GET", path: "/api/nsk/v1/resources/stations/{stationCode}", auth: "Anonymous", status: "200",
+    sum: "One station, or 404" },
+  { id: "markets", svc: "RefData", m: "GET", path: "/api/nsk/v2/resources/markets", auth: "Anonymous", status: "200",
+    sum: "City pairs that are sold",
+    resp: `{ "data": [ { "locationCode": "CMB", "travelLocationCode": "DXB", "inActive": false,
+             "locationType": 1, "travelLocationType": 1, "includesTaxesAndFees": 0 } ] }` },
+  { id: "countries", svc: "RefData", m: "GET", path: "/api/nsk/v2/resources/countries", auth: "Anonymous", status: "200",
+    sum: "Countries (also /countries/{countryCode})",
+    resp: `{ "data": [ { "countryCode": "LK", "countryCode3C": "LKA", "name": "Sri Lanka",
+             "defaultCurrencyCode": "LKR", "hasProvinceStates": false, "inActive": false } ] }` },
+  { id: "currencies", svc: "RefData", m: "GET", path: "/api/nsk/v2/resources/currencies", auth: "Anonymous", status: "200",
+    sum: "Currencies",
+    resp: `{ "data": [ { "currencyCode": "USD", "description": "US Dollar", "symbol": "$", "decimalPlaces": 2, "inActive": false } ] }` },
+  { id: "ptc", svc: "RefData", m: "GET", path: "/api/nsk/v1/resources/passengerTypes", auth: "Anonymous", status: "200",
+    sum: "Passenger types and their age ranges",
+    resp: `{ "data": [
+  { "passengerTypeCode": "ADT", "name": "Adult", "minimumAge": 12, "maximumAge": 120, "nonAdult": false, "allowed": true },
+  { "passengerTypeCode": "CHD", "name": "Child", "minimumAge": 2, "maximumAge": 11, "nonAdult": true, "allowed": true },
+  { "passengerTypeCode": "INF", "name": "Infant", "minimumAge": 0, "maximumAge": 1, "nonAdult": true, "allowed": true }
+] }` },
+  { id: "lists", svc: "RefData", m: "GET", path: "/api/nsk/v1/resources/{listName}", auth: "Anonymous", status: "200",
+    sum: "Code lists: titles, documentTypes, contactTypes, nonBinaryGenders",
+    resp: `{ "data": [ { "code": "MR", "name": "Mr", "inActive": false } ] }`,
+    errors: [["core:Validation:ResourceNotFound", "Unknown list name"]] },
+  { id: "settings", svc: "RefData", m: "GET", path: "/api/nsk/v1/settings/{name}", auth: "Anonymous", status: "200",
+    sum: "Settings: booking/passenger, booking/contact, booking/general, payment, general",
+    resp: `{ "data": { "requiredFields": ["first", "last"], "maxPassengers": 9, "suppressAgeValidation": false } }`,
+    errors: [["core:Validation:ResourceNotFound", "Unknown settings name"]] },
+  { id: "localtime", svc: "RefData", m: "GET", path: "/api/nsk/v1/utilities/stationLocalTime/{stationCode}", auth: "Anonymous", status: "200",
+    sum: "Current local time at a station",
+    resp: `{ "data": { "stationCode": "CMB", "localTime": "2026-11-25T15:42:10", "utcOffsetMinutes": 330 } }`,
+    errors: [["nsk:Booking:InvalidStationCode", "Unknown station"]] },
+
+  // ---------------- Shopping
+  { id: "search-simple", svc: "Shopping", m: "POST", path: "/api/nsk/v4/availability/search/simple", auth: "Anonymous", status: "200",
+    sum: "Search one market over a date range",
+    body: `{
+  "origin": "CMB",
+  "destination": "DXB",
+  "beginDate": "2026-12-10",
+  "endDate": "2026-12-11",
+  "passengers": { "types": [ { "type": "ADT", "count": 2 }, { "type": "CHD", "count": 1 } ] },
+  "codes": { "currencyCode": "USD" },
+  "filters": { "maxConnections": 1, "flightType": "All" },
+  "numberOfFaresPerJourney": 4
+}`,
+    resp: `{
+  "data": {
+    "results": [ { "trips": [ { "date": "2026-12-10T00:00:00",
+      "journeysAvailableByMarket": { "CMB|DXB": [ {
+        "journeyKey": "WFh_IDEwMX4gfn5DTUJ_…", "flightType": 1, "stops": 0,
+        "designator": { "origin": "CMB", "destination": "DXB",
+                        "departure": "2026-12-10T08:30:00", "arrival": "2026-12-10T11:30:00" },
+        "segments": [ … ],
+        "fares": [ { "fareAvailabilityKey": "ZDNlMWM…IUw-",
+                     "details": [ { "availableCount": 27, "status": 1, "reference": "MTd_…" } ] } ]
+      } ] } } ] } ],
+    "faresAvailable": {
+      "ZDNlMWM…IUw-": {
+        "totals": { "fareTotal": 360, "revenueTotal": 360, "publishedTotal": 360 },
+        "fares": [ { "classOfService": "L", "productClass": "EC", "fareBasisCode": "LECOW",
+          "passengerFares": [ { "passengerType": "ADT", "fareAmount": 180, "multiplier": 2,
+            "serviceCharges": [ { "type": 0, "amount": 180 }, { "type": 5, "code": "LKD", "amount": 60 },
+                                { "type": 4, "code": "YQ", "amount": 25 } ] } ] } ]
+      }
+    },
+    "currencyCode": "USD", "includeTaxesAndFees": false
+  }
+}`,
+    notes: ["Pick a journey from journeysAvailableByMarket[\"CMB|DXB\"], then one of its fareAvailabilityKeys; the price is in faresAvailable[key].",
+            "Defaults: endDate = beginDate (max 14 days), 1 ADT, maxConnections 1, 1 fare per journey.",
+            "A journey with an empty fares array is sold out for your passenger count.",
+            "Offers expire after 30 minutes."],
+    errors: [["nsk:Booking:InvalidStationCode", "Bad station or origin = destination"], ["nsk-server:InvalidDateRange", "Range over 14 days or reversed"], ["nsk:Availability:MaxBookingPassengers", "More than 9 passengers"]] },
+  { id: "search-full", svc: "Shopping", m: "POST", path: "/api/nsk/v4/availability/search", auth: "Anonymous", status: "200",
+    sum: "Multi-criteria search: round trip and multi-city",
+    body: `{
+  "criteria": [
+    { "stations": { "originStationCodes": ["CMB"], "destinationStationCodes": ["SIN"] }, "dates": { "beginDate": "2026-12-10" } },
+    { "stations": { "originStationCodes": ["SIN"], "destinationStationCodes": ["CMB"] }, "dates": { "beginDate": "2026-12-17" } }
+  ],
+  "passengers": { "types": [ { "type": "ADT", "count": 1 } ] },
+  "codes": { "currencyCode": "USD" },
+  "numberOfFaresPerJourney": 2
+}`, notes: ["One result per criterion, in order: outbound in results[0], return in results[1].", "Sell both keys in one trip/sell call."] },
+
+  // ---------------- Booking
+  { id: "sell", svc: "Booking", m: "POST", path: "/api/nsk/v4/trip/sell", auth: "Anonymous", status: "200",
+    sum: "Create the booking in state and hold seats",
+    body: `{
+  "keys": [ { "journeyKey": "<from availability>", "fareAvailabilityKey": "<from availability>" } ],
+  "passengers": { "types": [ { "type": "ADT", "count": 1 } ] },
+  "currencyCode": "USD"
+}`, resp: BOOKING_RESPONSE,
+    notes: ["The passenger count is fixed by the first sell; later sells must send the same mix or leave passengers out.",
+            "The price is recalculated for the passengers you actually sell.",
+            "Seats are held until the session ends."],
+    errors: [["nsk:Exceptions:InvalidKey", "Bad or expired key"], ["nsk:Availability:ClassNotAvailable", "Seats taken since the search"],
+             ["nsk:Booking:PassengerTypesMismatch", "Different passenger mix"], ["nsk:Booking:JourneyAlreadySold", "Same journey twice"],
+             ["nsk:Booking:JourneyOverlap", "Journeys overlap in time"], ["nsk:Passenger:InvalidPassengerType", "No adult, or INF used as a type"],
+             ["nsk:Booking:NotSupportedYet", "infantCount above 0 (Phase 2)"]] },
+  { id: "trip", svc: "Booking", m: "POST", path: "/api/nsk/v5/trip", auth: "Anonymous", status: "200",
+    sum: "One call: sell, passenger details and contact",
+    body: `{
+  "journeys": { "keys": [ { "journeyKey": "<…>", "fareAvailabilityKey": "<…>" } ] },
+  "passengers": [
+    { "passenger": { "passengerTypeCode": "ADT",
+                     "name": { "first": "Ashan", "last": "Dias", "title": "MR" },
+                     "info": { "nationality": "LK", "gender": "Male", "dateOfBirth": "1990-05-14" } } }
+  ],
+  "contact": { "name": { "first": "Ashan", "last": "Dias" }, "emailAddress": "ashan@example.com" },
+  "currencyCode": "USD"
+}`, resp: BOOKING_RESPONSE,
+    notes: ["Starts a new booking in state; any uncommitted draft is discarded and its seats released.", "Also available as /api/nsk/v4/trip."] },
+  { id: "booking-get", svc: "Booking", m: "GET", path: "/api/nsk/v1/booking", auth: "Anonymous", status: "200",
+    sum: "Read the booking in state", resp: BOOKING_RESPONSE,
+    errors: [["nsk:Booking:NoBookingInState", "Nothing sold in this session yet"]] },
+  { id: "reset", svc: "Booking", m: "DELETE", path: "/api/nsk/v1/booking/reset", auth: "Anonymous", status: "200",
+    sum: "Drop the booking in state and release uncommitted seats", resp: `{ "data": null }` },
+  { id: "journey-delete", svc: "Booking", m: "DELETE", path: "/api/nsk/v1/booking/journeys/{journeyKey}", auth: "Anonymous", status: "200",
+    sum: "Remove a journey that is not committed yet", resp: `{ "data": null }`,
+    errors: [["nsk:Booking:JourneyNotChangeable", "Journey already committed (cancel arrives in Phase 2)"]] },
+  { id: "hold", svc: "Booking", m: "GET", path: "/api/nsk/v2/booking/hold/available", auth: "Anonymous", status: "200",
+    sum: "Can this booking be committed without full payment?",
+    resp: `{ "data": { "expiration": "2026-11-26T10:00:00Z" } }   // or { "data": null }`,
+    notes: ["Allowed when the first flight is at least 72 hours away; the hold lasts up to 24 hours."] },
+  { id: "pax-get", svc: "Booking", m: "GET", path: "/api/nsk/v1/booking/passengers", auth: "Anonymous", status: "200",
+    sum: "Passengers in the booking (also /passengers/{passengerKey})",
+    resp: `{ "data": { "MCFBRFQ-": { "passengerKey": "MCFBRFQ-", "passengerTypeCode": "ADT", "name": { … }, "info": { … } } } }` },
+  { id: "pax-put", svc: "Booking", m: "PUT", path: "/api/nsk/v3/booking/passengers/{passengerKey}", auth: "Anonymous", status: "200",
+    sum: "Set a passenger's name, birth date and gender",
+    body: `{
+  "name": { "first": "Ashan", "last": "Dias", "title": "MR" },
+  "info": { "nationality": "LK", "residentCountry": "LK", "gender": "Male", "dateOfBirth": "1990-05-14" }
+}`, resp: `{ "data": null }`,
+    notes: ["PUT replaces name and info; PATCH (same path) changes only the fields you send.",
+            "Names allow letters, accents, spaces, - and '. Max 32 characters per part, title max 6.",
+            "Birth date must fit the passenger type on the first flight date (ADT 12+, CHD 2–11).",
+            "declaredGender wins over gender: F → Female, anything else → Male."],
+    errors: [["nsk:Validation:InvalidFirstNameCharacters", "Also …LastName… / …MiddleName…"], ["nsk:Passenger:InvalidDateOfBirth", "Age outside the passenger type range"], ["nsk:Exceptions:InvalidKey", "Unknown passengerKey"]] },
+  { id: "pax-patch", svc: "Booking", m: "PATCH", path: "/api/nsk/v3/booking/passengers/{passengerKey}", auth: "Anonymous", status: "200",
+    sum: "Change only some passenger fields", body: `{ "info": { "dateOfBirth": "1990-05-15" } }`, resp: `{ "data": null }` },
+  { id: "contacts-get", svc: "Booking", m: "GET", path: "/api/nsk/v1/booking/contacts", auth: "Anonymous", status: "200",
+    sum: "Contacts (also /contacts/{contactTypeCode}; \"primary\" means P)",
+    resp: `{ "data": { "P": { "contactTypeCode": "P", "name": { … }, "emailAddress": "…", "distributionOption": 2 } } }` },
+  { id: "contacts-post", svc: "Booking", m: "POST", path: "/api/nsk/v1/booking/contacts", auth: "Anonymous", status: "201",
+    sum: "Add a contact — the primary contact is type P",
+    body: `{
+  "contactTypeCode": "P",
+  "name": { "first": "Ashan", "last": "Dias", "title": "MR" },
+  "emailAddress": "ashan@example.com",
+  "phoneNumbers": [ { "type": "Mobile", "number": "+94770000000" } ],
+  "address": { "lineOne": "1 Galle Road", "city": "Colombo", "countryCode": "LK" },
+  "distributionOption": "Email"
+}`, resp: `{ "data": null }   // Location: /api/nsk/v1/booking/contacts/P`,
+    notes: ["distributionOption Email sends the itinerary email at first commit."],
+    errors: [["nsk:Booking:ContactTypeExists", "That type already exists — use PUT"], ["nsk:Contact:InvalidEmailAddress", "Bad email"]] },
+  { id: "contacts-put", svc: "Booking", m: "PUT", path: "/api/nsk/v1/booking/contacts/{contactTypeCode}", auth: "Anonymous", status: "200",
+    sum: "Add or replace a contact", resp: `{ "data": null }` },
+  { id: "contacts-delete", svc: "Booking", m: "DELETE", path: "/api/nsk/v1/booking/contacts/{contactTypeCode}", auth: "Anonymous", status: "200",
+    sum: "Remove a contact", resp: `{ "data": null }`, errors: [["nsk:Booking:ContactNotFound", "No contact of that type"]] },
+
+  // ---------------- Payment
+  { id: "pay-methods", svc: "Payment", m: "GET", path: "/api/nsk/v2/booking/payments/available", auth: "Anonymous", status: "200",
+    sum: "Payment methods and the fields each one needs",
+    resp: `{
+  "data": {
+    "VI": { "paymentMethodCode": "VI", "name": "Visa", "paymentMethodType": 0, "allowed": true,
+      "paymentMethodFields": {
+        "ACCTNO": { "requiredType": 1, "valueMinLength": 13, "valueMaxLength": 19 },
+        "EXPDAT": { "requiredType": 1 },
+        "CC::AccountHolderName": { "requiredType": 1, "valueMaxLength": 30 },
+        "CC::VerificationCode": { "requiredType": 1, "valueMaxLength": 4 } } },
+    "MC": { … }
+  }
+}`, notes: ["Cash (CA) is listed only for agent sessions.", "Needs a booking in state."] },
+  { id: "pay-post", svc: "Payment", m: "POST", path: "/api/nsk/v6/booking/payments", auth: "Anonymous", status: "201",
+    sum: "Add a card or cash payment to the booking",
+    body: `{
+  "paymentMethodCode": "VI",
+  "amount": 265,
+  "currencyCode": "USD",
+  "paymentFields": {
+    "ACCTNO": "4111111111111111",
+    "EXPDAT": "12/2030",
+    "CC::AccountHolderName": "Ashan Dias",
+    "CC::VerificationCode": "123"
+  }
+}`, resp: `{ "data": null }   // Location: /api/nsk/v1/booking/payments/{paymentKey}`,
+    notes: ["The card is not charged yet — it is authorised at commit.", "Pay exactly breakdown.balanceDue.",
+            "The card number becomes a token straight away; the booking keeps only XXXXXXXXXXXX1111 and the token. CVV is never stored.",
+            "EXPDAT accepts MM/yyyy, MM/yy or an ISO date. Also available as /api/nsk/v4/booking/payments."],
+    errors: [["nsk:Payment:InvalidPaymentMethod", "Unknown method, or cash without an agent session"], ["nsk:Payment:PaymentFieldRequired", "A required field is missing"],
+             ["nsk:Payment:InvalidAccountNumber", "Card number fails the Luhn check"], ["nsk:Payment:CardExpired", "Expiry in the past or unreadable"],
+             ["nsk:Payment:InvalidAmount", "Amount ≤ 0 or above the balance due"], ["nsk:Currency:InvalidCurrencyCode", "Currency differs from the booking"]] },
+  { id: "pay-get", svc: "Payment", m: "GET", path: "/api/nsk/v1/booking/payments", auth: "Anonymous", status: "200",
+    sum: "Payments on the booking (also /payments/{paymentKey})",
+    resp: `{ "data": [ { "paymentKey": "MCExIVZJITA-", "code": "VI", "type": 0, "status": 1,
+             "amounts": { "amount": 265, "currencyCode": "USD" },
+             "details": { "accountNumber": "XXXXXXXXXXXX1111", "fields": { "PMTOKEN": "fk_approve_…" } } } ] }`,
+    notes: ["status: 1 Received (card, before commit), 3 Approved, 4 Declined."] },
+  { id: "pay-delete", svc: "Payment", m: "DELETE", path: "/api/nsk/v1/booking/payments/{paymentKey}", auth: "Anonymous", status: "200",
+    sum: "Remove a payment that is not committed yet", resp: `{ "data": null }`,
+    errors: [["nsk:Payment:NotRemovable", "Payment already committed (refunds in Phase 2)"], ["nsk:Payment:PaymentKeyNotFoundOnBooking", "Unknown paymentKey"]] },
+
+  // ---------------- Commit / retrieve
+  { id: "commit", svc: "Commit", m: "POST", path: "/api/nsk/v3/booking", auth: "Anonymous", status: "201",
+    sum: "Commit: save the booking and get a record locator",
+    body: `{
+  "receivedBy": "Web",
+  "comments": [ { "type": "Default", "text": "Window seat requested" } ],
+  "notifyContacts": true
+}`, resp: `{ "data": null }   // Location: /api/nsk/v1/booking`,
+    notes: ["Checks: at least one journey, a primary contact P, first and last name for every passenger.",
+            "Then: assigns the record locator, authorises card payments, confirms seats, saves, sends the itinerary email.",
+            "Fully paid → status 2 Confirmed. Balance left and hold allowed → status 1 Hold.",
+            "If a card is declined and the booking can't be held, nothing is saved, seats stay held, and the payment shows status 4."],
+    errors: [["nsk:Booking:MissingPrimaryContact", "No contact P"], ["nsk:Passenger:FirstNameRequired", "Also LastNameRequired"],
+             ["nsk:Booking:NoJourneys", "Nothing sold"], ["nsk:Booking:BalanceDueNotAllowed", "Unpaid and hold not allowed"],
+             ["nsk:Payment:Declined", "Card declined"], ["nsk:Availability:ClassNotAvailable", "Held seats expired before commit"]] },
+  { id: "recommit", svc: "Commit", m: "PUT", path: "/api/nsk/v3/booking", auth: "Anonymous", status: "200",
+    sum: "Commit changes to a booking that was already committed", resp: `{ "data": null }`,
+    errors: [["nsk:Booking:ModifiedByAnotherSession", "409 — the stored booking changed; retrieve it again"]] },
+  { id: "status", svc: "Commit", m: "GET", path: "/api/nsk/v2/booking/status", auth: "Anonymous", status: "200",
+    sum: "Read the booking after commit",
+    resp: `{
+  "data": {
+    "bookingKey": "MTIhSzdQTTJRIWZhbHNl",
+    "recordLocator": "K7PM2Q",
+    "info": { "status": 2, "paidStatus": 1, "createdDate": "2026-11-25T10:12:44Z" },
+    "breakdown": { "totalAmount": 265, "balanceDue": 0 },
+    "payments": [ { "paymentKey": "MSExIVZJITE-", "status": 3, "authorizationCode": "482913" } ]
+  }
+}` },
+  { id: "retrieve", svc: "Commit", m: "GET", path: "/api/nsk/v2/booking/retrieve?RecordLocator=K7PM2Q&LastName=Dias", auth: "Anonymous", status: "200",
+    sum: "Find a booking and load it into the session",
+    resp: BOOKING_RESPONSE.replace('"recordLocator": null', '"recordLocator": "K7PM2Q"'),
+    notes: ["RecordLocator plus one proof: LastName, FirstName + LastName, or EmailAddress.",
+            "Every failure returns the same GeneralRestriction error, so record locators can't be guessed.",
+            "Replaces any booking already in the session."],
+    errors: [["nsk:Booking:GeneralRestriction", "Not found or details don't match"]] },
+
+  // ---------------- Agent
+  { id: "agent-rl", svc: "Agent", m: "GET", path: "/api/nsk/v1/booking/retrieve/byRecordLocator/{recordLocator}", auth: "Agent", status: "200",
+    sum: "Load any booking into the session, no name check", resp: BOOKING_RESPONSE,
+    errors: [["nsk:Exceptions:InvalidKey", "Unknown record locator"], ["nsk:Authorization:AgentOnly", "401 — not an agent session"]] },
+  { id: "agent-key", svc: "Agent", m: "GET", path: "/api/nsk/v1/booking/retrieve/{bookingKey}", auth: "Agent", status: "200",
+    sum: "Load a booking into the session by bookingKey", resp: BOOKING_RESPONSE },
+  { id: "agent-stateless", svc: "Agent", m: "GET", path: "/api/nsk/v1/bookings/{recordLocator}", auth: "Agent", status: "200",
+    sum: "Read a stored booking without touching the session",
+    resp: `{ "data": { "recordLocator": "K7PM2Q", … } }   // 404 { "data": null } when unknown` },
+  { id: "agent-cash", svc: "Agent", m: "POST", path: "/api/nsk/v6/booking/payments", auth: "Agent", status: "201",
+    sum: "Take a cash payment (approved straight away)",
+    body: `{ "paymentMethodCode": "CA", "amount": 265, "currencyCode": "USD" }`,
+    resp: `{ "data": null }   // Location: /api/nsk/v1/booking/payments/{paymentKey}` }
+];
+
+const FLOW = [
+  ["Token", "token-anon", "Start a session. Keep the token; every other call sends it."],
+  ["Search", "search-simple", "Find flights. Copy a journeyKey and one of its fareAvailabilityKeys."],
+  ["Sell", "sell", "Create the booking in state. Seats are held; note the passengerKeys and balanceDue."],
+  ["Passengers", "pax-put", "Give each passenger a name, birth date and gender."],
+  ["Contact", "contacts-post", "Add the primary contact (type P) with an email for the itinerary."],
+  ["Methods", "pay-methods", "See which payment methods this session can use and their required fields."],
+  ["Pay", "pay-post", "Add a card payment for exactly the balance due. It is charged at commit."],
+  ["Commit", "commit", "Save the booking: payments authorised, seats confirmed, record locator assigned."],
+  ["Status", "status", "Read the confirmed booking: recordLocator, status 2, paidStatus 1."],
+  ["Logout", "token-delete", "End the session. The itinerary email is waiting in Mailpit."]
+];
+
+const ERRORS = [
+  ["core:Validation:NullRequest", 400, "Body missing", "Navitaire"],
+  ["core:Validation:MalformedRequest", 400, "Invalid JSON or wrong value type", "Navitaire"],
+  ["core:Validation:ResourceNotFound", 400, "Unknown resource list or settings name", "Navitaire"],
+  ["core:Unauthorized", 401, "No token, bad token, or the session ended", "Navitaire"],
+  ["core:Session:ConcurrentRequest", 409, "Another stateful call on this session is still running", "Ours"],
+  ["core:ServiceUnavailable", "502–504", "A service behind the gateway failed or timed out", "Ours"],
+  ["core:Exception", 500, "Unexpected error — search the X-Correlation-Id in Seq", "Navitaire"],
+  ["nsk:Authorization:AgentOnly", 401, "Endpoint needs an agent session", "Ours"],
+  ["nsk:Authentication:InvalidCredentials", 401, "Wrong logon details", "Ours"],
+  ["nsk:Authentication:InvalidApplication", 400, "No anonymous user for the application", "Ours"],
+  ["nsk-server:PasswordExpired", 400, "Password must be changed", "Navitaire"],
+  ["nsk:Exceptions:InvalidKey", 400, "Key malformed, unknown or expired", "Navitaire"],
+  ["nsk-server:InvalidDateRange", 400, "Search date range too long or reversed", "Navitaire"],
+  ["nsk:Booking:InvalidStationCode", 400, "Bad station code, or origin = destination", "Navitaire"],
+  ["nsk:Booking:NoBookingInState", 400, "No booking in the session", "Navitaire"],
+  ["nsk:Booking:GeneralRestriction", 400, "Retrieve failed (deliberately vague)", "Navitaire"],
+  ["nsk:Booking:NoJourneys", 400, "Commit without journeys", "Ours"],
+  ["nsk:Booking:MissingPrimaryContact", 400, "Commit without contact P, or it has no name/email", "Ours"],
+  ["nsk:Booking:ContactTypeExists", 400, "Contact type already present — use PUT", "Ours"],
+  ["nsk:Booking:ContactNotFound", 400, "No contact of that type", "Ours"],
+  ["nsk:Booking:PassengerTypesMismatch", 400, "Sell with a different passenger mix", "Ours"],
+  ["nsk:Booking:JourneyAlreadySold", 400, "Same journey sold twice", "Ours"],
+  ["nsk:Booking:JourneyOverlap", 400, "Journeys overlap in time", "Ours"],
+  ["nsk:Booking:JourneyNotChangeable", 400, "Journey already committed", "Ours"],
+  ["nsk:Booking:BalanceDueNotAllowed", 400, "Commit with unpaid balance when hold isn't allowed", "Ours"],
+  ["nsk:Booking:ModifiedByAnotherSession", 409, "Stored booking changed since you loaded it", "Ours"],
+  ["nsk:Booking:FailedFareRestriction", 400, "Booking needs re-pricing", "Navitaire"],
+  ["nsk:Booking:NotSupportedYet", 400, "Feature arrives in a later phase", "Ours"],
+  ["nsk:Availability:ClassNotAvailable", 400, "Seats gone, or held seats expired before commit", "Ours"],
+  ["nsk:Availability:MaxBookingPassengers", 400, "More than 9 passengers", "Navitaire"],
+  ["nsk:Validation:UnknownSellCurrencyCode", 400, "Currency not sold (USD only)", "Navitaire"],
+  ["nsk:Validation:InvalidFirstNameCharacters", 400, "Also LastName / MiddleName", "Navitaire"],
+  ["nsk:Validation:InvalidTitle", 400, "Title longer than 6 characters (also InvalidSuffix)", "Ours"],
+  ["nsk:Passenger:TypeNotFound", 400, "Unknown passenger type", "Navitaire"],
+  ["nsk:Passenger:InvalidPassengerType", 400, "No adult, or INF used as a type", "Navitaire"],
+  ["nsk:Passenger:InvalidDateOfBirth", 400, "Age outside the passenger type range", "Navitaire"],
+  ["nsk:Passenger:FirstNameRequired", 400, "Missing names at commit (also LastNameRequired)", "Navitaire"],
+  ["nsk:Contact:InvalidContactTypeCode", 400, "Contact type must be one character", "Ours"],
+  ["nsk:Contact:InvalidEmailAddress", 400, "Bad email address", "Ours"],
+  ["nsk:Currency:InvalidCurrencyCode", 400, "Payment currency differs from the booking", "Navitaire"],
+  ["nsk:Payment:InvalidPaymentMethod", 400, "Unknown method, or cash without an agent", "Ours"],
+  ["nsk:Payment:PaymentFieldRequired", 400, "Required payment field missing", "Ours"],
+  ["nsk:Payment:InvalidAccountNumber", 400, "Card number fails the Luhn check", "Ours"],
+  ["nsk:Payment:CardExpired", 400, "Card expiry in the past or unreadable", "Ours"],
+  ["nsk:Payment:InvalidAmount", 400, "Amount ≤ 0 or above the balance due", "Ours"],
+  ["nsk:Payment:Declined", 400, "Card declined at commit", "Ours"],
+  ["nsk:Payment:NotRemovable", 400, "Committed payments can't be deleted", "Ours"],
+  ["nsk:Payment:PaymentKeyNotFoundOnBooking", 400, "Unknown paymentKey", "Navitaire"]
+];
+
+const ENUMS = [
+  ["BookingStatus", "0 in state, 1 Hold, 2 Confirmed, 3 Closed, 4 HoldCanceled"],
+  ["PaidStatus", "0 UnderPaid, 1 PaidInFull, 2 OverPaid"],
+  ["PriceStatus", "0 Invalid, 1 Override, 2 Valid"],
+  ["ChannelType", "0 Default, 1 Direct, 2 Web, 3 Gds, 4 Api, 5 DigitalApi, 6 DigitalWeb, 7 Ndc"],
+  ["Gender", "0 XX, 1 Male, 2 Female"],
+  ["WeightCategory", "0 Unassigned, 1 Male, 2 Female, 3 Child"],
+  ["FlightType", "0 None, 1 NonStop, 2 Through, 3 Direct, 4 Connect, 5 All"],
+  ["SegmentStatus", "3 HeldPending (before commit), 6 HeldConfirmed (after commit)"],
+  ["LegStatus", "0 Normal, 1 Closed, 2 Canceled, 3 Suspended"],
+  ["LiftStatus", "0 Default, 1 CheckedIn, 2 Boarded, 3 NoShow"],
+  ["ChargeType", "0 FarePrice, 1 Discount, 4 TravelFee, 5 Tax, 7 PromotionDiscount, 19 FareSurcharge"],
+  ["PaymentMethodType", "0 card, 1 cash, 2 AgencyAccount, 3 CustomerAccount, 4 Voucher, 5 Loyalty"],
+  ["BookingPaymentStatus", "0 New, 1 Received, 2 Pending, 3 Approved, 4 Declined, 6 PendingCustomerAction"],
+  ["AuthorizationStatus", "0 Unknown, 4 Approved, 5 Declined, 9 Voided"],
+  ["PhoneNumberType", "0 Other, 1 Home, 2 Work, 3 Mobile, 4 Fax"],
+  ["CommentType", "0 Default, 1 Itinerary, 2 Manifest, 3 Alert, 4 Archive"],
+  ["DistributionOption", "0 None, 1 Mail, 2 Email, 3 Fax"],
+  ["UserType", "1 Customer, 2 Agent, 3 Anonymous"]
+];
+
+const FLIGHTS = [
+  ["XX101", "CMB", "DXB", "08:30", "4h30", "A321", "int"], ["XX102", "DXB", "CMB", "14:00", "4h15", "A321", "int"],
+  ["XX201", "CMB", "SIN", "23:55", "3h45", "A320", "int"], ["XX202", "SIN", "CMB", "08:00", "3h40", "A320", "int"],
+  ["XX301", "CMB", "BKK", "01:10", "3h15", "A320", "int"], ["XX302", "BKK", "CMB", "07:30", "3h20", "A320", "int"],
+  ["XX401", "CMB", "MLE", "10:00", "1h20", "A320", "int"], ["XX402", "MLE", "CMB", "12:30", "1h20", "A320", "int"],
+  ["XX501", "CMB", "DEL", "09:15", "3h45", "A321", "int"], ["XX502", "DEL", "CMB", "14:30", "3h50", "A321", "int"],
+  ["XX601", "CMB", "KUL", "13:00", "3h50", "A320", "int"], ["XX602", "KUL", "CMB", "18:30", "3h50", "A320", "int"],
+  ["XX701", "DXB", "LHR", "15:30", "7h50", "A330", "int"], ["XX702", "LHR", "DXB", "21:00", "6h55", "A330", "int"],
+  ["XX801", "CMB", "JAF", "07:00", "1h00", "ATR72", "dom"], ["XX802", "JAF", "CMB", "09:00", "1h00", "ATR72", "dom"]
+];
+
+/* ====================================================================================
+   Rendering
+   ==================================================================================== */
+const $ = (sel, root = document) => root.querySelector(sel);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v);
+  }
+  kids.flat().forEach(k => n.append(k));
+  return n;
+};
+const methodGroup = m => (m === "PATCH" ? "PUT" : m);
+const authLabel = { None: "No token", Anonymous: "Any session", Agent: "Agent only" };
+
+function copyButton(getText, label) {
+  const b = el("button", { class: "copy", type: "button", text: label });
+  b.addEventListener("click", async e => {
+    e.stopPropagation();
+    try { await navigator.clipboard.writeText(getText()); b.textContent = "Copied"; }
+    catch { b.textContent = "Copy failed"; }
+    setTimeout(() => (b.textContent = label), 1400);
+  });
+  return b;
+}
+
+function jsonBlock(title, text) {
+  const head = el("div", { class: "pre-head" }, el("h4", { text: title }), copyButton(() => text, "Copy"));
+  return [head, el("pre", { class: "json", text })];
+}
+
+function renderStrip(ep) {
+  const li = el("li", { class: "strip", id: "ep-" + ep.id });
+  const detailId = "detail-" + ep.id;
+  const btn = el("button", { type: "button", "aria-expanded": "false", "aria-controls": detailId },
+    el("span", { class: "method m-" + ep.m, text: ep.m }),
+    el("span", { class: "path", text: ep.path }),
+    el("span", { class: "summary", text: ep.sum }),
+    el("span", { class: "auth auth-" + ep.auth, text: authLabel[ep.auth] }),
+    el("span", { class: "status", text: ep.status }));
+  const detail = el("div", { class: "detail", id: detailId });
+  const pathRow = el("div", { class: "pre-head" }, el("h4", { text: "Call" }), copyButton(() => "{{baseUrl}}" + ep.path, "Copy URL"));
+  detail.append(pathRow, el("pre", { class: "json", text: `${ep.m} http://localhost:5000${ep.path}` + (ep.auth === "None" ? "" : "\nAuthorization: Bearer <token>") + (ep.body ? "\nContent-Type: application/json" : "") }));
+  if (ep.notes?.length) detail.append(el("h4", { text: "Rules" }), el("ul", {}, ep.notes.map(n => el("li", { text: n }))));
+  if (ep.body) detail.append(...jsonBlock("Request body", ep.body));
+  if (ep.resp) detail.append(...jsonBlock(`Response ${ep.status}`, ep.resp));
+  if (ep.errors?.length) detail.append(el("h4", { text: "Errors" }),
+    el("ul", {}, ep.errors.map(([c, d]) => el("li", {}, el("span", { class: "err-code", text: c }), " — " + d))));
+  btn.addEventListener("click", () => toggle(li));
+  li.append(btn, detail);
+  return li;
+}
+
+function toggle(li, force) {
+  const open = force ?? !li.classList.contains("open");
+  li.classList.toggle("open", open);
+  li.querySelector(":scope > button").setAttribute("aria-expanded", String(open));
+}
+
+function renderEndpoints() {
+  const host = $("#endpointList");
+  for (const [svc, desc] of Object.entries(SERVICES)) {
+    const items = ENDPOINTS.filter(e => e.svc === svc);
+    host.append(el("div", { class: "service-group", "data-svc": svc },
+      el("h3", {}, svc, el("small", { text: desc })),
+      el("ul", { class: "strips" }, items.map(renderStrip))));
+  }
+  host.append(el("p", { class: "empty", id: "noMatch", hidden: "" }, "No endpoint matches. Clear the search or turn a method filter back on."));
+}
+
+function applyFilters() {
+  const q = $("#q").value.trim().toLowerCase();
+  const methods = [...document.querySelectorAll(".chip-toggle[aria-pressed='true']")].map(b => b.dataset.method);
+  const auth = $("#authFilter").value;
+  let shown = 0;
+  for (const ep of ENDPOINTS) {
+    const hay = [ep.path, ep.sum, ep.svc, ...(ep.notes || []), ...(ep.errors || []).flat()].join(" ").toLowerCase();
+    const ok = (!q || hay.includes(q)) && methods.includes(methodGroup(ep.m)) && (!auth || ep.auth === auth);
+    $("#ep-" + ep.id).hidden = !ok;
+    if (ok) shown++;
+  }
+  document.querySelectorAll(".service-group").forEach(g => (g.hidden = !g.querySelector(".strip:not([hidden])")));
+  $("#noMatch").hidden = shown > 0;
+  $("#count").textContent = `Showing ${shown} of ${ENDPOINTS.length} endpoints`;
+}
+
+function renderFlow() {
+  const list = $("#stops");
+  FLOW.forEach(([name, id, text], i) => {
+    const ep = ENDPOINTS.find(e => e.id === id);
+    const btn = el("button", { type: "button", "aria-pressed": "false", "aria-label": `Stop ${i + 1}: ${name}` },
+      el("span", { class: "stop-dot", text: String(i + 1) }),
+      el("span", { class: "stop-name", text: name }),
+      el("span", { class: "stop-path", text: `${ep.m} ${ep.path.replace(/^\/api\/(nsk|auth)\//, "")}` }));
+    btn.addEventListener("click", () => {
+      list.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", "false"));
+      btn.setAttribute("aria-pressed", "true");
+      const d = $("#stopDetail");
+      d.replaceChildren(el("strong", { text: `${i + 1}. ${name} — ` }), text + " ",
+        el("span", { class: "mono", text: `${ep.m} ${ep.path}` }), " ",
+        Object.assign(el("a", { href: "#ep-" + id, text: "Open endpoint details" }), {
+          onclick: () => { const li = $("#ep-" + id); li.hidden = false; toggle(li, true); }
+        }));
+    });
+    list.append(el("li", {}, btn));
+  });
+}
+
+function renderErrors() {
+  const body = $("#errorTable tbody");
+  ERRORS.forEach(([c, h, d, o]) => body.append(el("tr", {},
+    el("td", { class: "err-code", text: c }), el("td", { class: "mono", text: String(h) }), el("td", { text: d }), el("td", { text: o }))));
+  $("#errQ").addEventListener("input", e => {
+    const q = e.target.value.toLowerCase();
+    body.querySelectorAll("tr").forEach(tr => (tr.hidden = !tr.textContent.toLowerCase().includes(q)));
+  });
+}
+
+function renderEnums() {
+  const body = $("#enumTable tbody");
+  ENUMS.forEach(([n, v]) => body.append(el("tr", {}, el("td", { class: "mono", text: n }), el("td", { text: v }))));
+}
+
+function renderBoard() {
+  const body = $("#board tbody");
+  FLIGHTS.forEach(([f, o, d, t, b, a, type]) => body.append(el("tr", {},
+    el("td", { class: "flight", text: f }), el("td", { text: o }), el("td", { text: d }), el("td", { text: t }),
+    el("td", { text: b }), el("td", { text: a }),
+    el("td", {}, el("span", { class: "badge " + (type === "dom" ? "b-dom" : "b-int"), text: type === "dom" ? "Domestic" : "International" })))));
+  body.append(el("tr", {}, el("td", { class: "flight", text: "XX101 + XX701" }), el("td", { text: "CMB" }), el("td", { text: "LHR" }),
+    el("td", { text: "08:30" }), el("td", { class: "cnx", colspan: "3", text: "Connection in DXB, 4 h layover — returned as one journey with two segments" })));
+}
+
+renderFlow();
+renderEndpoints();
+renderErrors();
+renderEnums();
+renderBoard();
+applyFilters();
+$("#q").addEventListener("input", applyFilters);
+$("#authFilter").addEventListener("change", applyFilters);
+document.querySelectorAll(".chip-toggle").forEach(b => b.addEventListener("click", () => {
+  b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") === "true" ? "false" : "true");
+  applyFilters();
+}));
+if (location.hash.startsWith("#ep-")) { const li = $(location.hash); if (li) toggle(li, true); }
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Pss.Contracts.Booking</RootNamespace>
+  </PropertyGroup>
+</Project>

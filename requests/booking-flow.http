@@ -1,0 +1,135 @@
+### Demo Air (XX) — Phase 1 happy path through the gateway (blueprint §12.1)
+### Works with Visual Studio 2022 (17.6+), Rider and VS Code "REST Client".
+### Run requests top to bottom. If your client does not support {{name.response...}} variables, copy values manually.
+
+@gw = http://localhost:5000
+# Pick a date within the next 30 days (flights are seeded for 30 days from the first start).
+@travelDate = 2026-12-10
+
+### 1. Anonymous token (session handle)
+# @name token
+POST {{gw}}/api/auth/v1/token/anonymous
+Content-Type: application/json
+
+{ "applicationName": "dotREZWeb" }
+
+### 2. Reference data (ETag cached — send If-None-Match to get 304)
+GET {{gw}}/api/nsk/v1/resources/stations
+Authorization: Bearer {{token.response.body.$.data.token}}
+
+### 3. Availability CMB → DXB (simple search)
+# @name avail
+POST {{gw}}/api/nsk/v4/availability/search/simple
+Authorization: Bearer {{token.response.body.$.data.token}}
+Content-Type: application/json
+
+{
+  "origin": "CMB",
+  "destination": "DXB",
+  "beginDate": "{{travelDate}}",
+  "passengers": { "types": [ { "type": "ADT", "count": 1 } ] },
+  "numberOfFaresPerJourney": 4
+}
+
+### 4. Trip sell (holds inventory until the session expires)
+# @name sell
+POST {{gw}}/api/nsk/v4/trip/sell
+Authorization: Bearer {{token.response.body.$.data.token}}
+Content-Type: application/json
+
+{
+  "keys": [
+    {
+      "journeyKey": "{{avail.response.body.$.data.results[0].trips[0].journeysAvailableByMarket['CMB|DXB'][0].journeyKey}}",
+      "fareAvailabilityKey": "{{avail.response.body.$.data.results[0].trips[0].journeysAvailableByMarket['CMB|DXB'][0].fares[0].fareAvailabilityKey}}"
+    }
+  ],
+  "passengers": { "types": [ { "type": "ADT", "count": 1 } ] },
+  "currencyCode": "USD"
+}
+
+### 5. Passenger details (first adult is always passengerKey MCFBRFQ- = "0!ADT")
+PUT {{gw}}/api/nsk/v3/booking/passengers/MCFBRFQ-
+Authorization: Bearer {{token.response.body.$.data.token}}
+Content-Type: application/json
+
+{
+  "name": { "first": "Ashan", "last": "Dias", "title": "MR" },
+  "info": { "nationality": "LK", "residentCountry": "LK", "gender": "Male", "dateOfBirth": "1990-05-14" }
+}
+
+### 6. Primary contact
+POST {{gw}}/api/nsk/v1/booking/contacts
+Authorization: Bearer {{token.response.body.$.data.token}}
+Content-Type: application/json
+
+{
+  "contactTypeCode": "P",
+  "name": { "first": "Ashan", "last": "Dias" },
+  "emailAddress": "ashan@example.com",
+  "phoneNumbers": [ { "type": "Mobile", "number": "+94770000000" } ],
+  "distributionOption": "Email"
+}
+
+### 7. Payment methods for this booking
+GET {{gw}}/api/nsk/v2/booking/payments/available
+Authorization: Bearer {{token.response.body.$.data.token}}
+
+### 8. Pay the balance with a test card (4000000000000002 = declined)
+POST {{gw}}/api/nsk/v6/booking/payments
+Authorization: Bearer {{token.response.body.$.data.token}}
+Content-Type: application/json
+
+{
+  "paymentMethodCode": "VI",
+  "amount": {{sell.response.body.$.data.breakdown.balanceDue}},
+  "currencyCode": "USD",
+  "paymentFields": {
+    "ACCTNO": "4111111111111111",
+    "EXPDAT": "12/2030",
+    "CC::AccountHolderName": "Ashan Dias",
+    "CC::VerificationCode": "123"
+  }
+}
+
+### 9. Commit → 201, Location: /api/nsk/v1/booking
+POST {{gw}}/api/nsk/v3/booking
+Authorization: Bearer {{token.response.body.$.data.token}}
+Content-Type: application/json
+
+{ "receivedBy": "Web", "comments": [ { "type": "Default", "text": "Booked via booking-flow.http" } ] }
+
+### 10. Status (recordLocator, info.status = 2 Confirmed, paidStatus = 1 PaidInFull)
+# @name status
+GET {{gw}}/api/nsk/v2/booking/status
+Authorization: Bearer {{token.response.body.$.data.token}}
+
+### 11. Log out (releases the session; an itinerary email is in Mailpit http://localhost:8025)
+DELETE {{gw}}/api/auth/v1/token
+Authorization: Bearer {{token.response.body.$.data.token}}
+
+### ---------------------------------------------------------------- manage booking
+
+### 12. New anonymous session
+# @name token2
+POST {{gw}}/api/auth/v1/token/anonymous
+Content-Type: application/json
+
+{ }
+
+### 13. Retrieve by record locator + last name (loads into state)
+GET {{gw}}/api/nsk/v2/booking/retrieve?RecordLocator={{status.response.body.$.data.recordLocator}}&LastName=Dias
+Authorization: Bearer {{token2.response.body.$.data.token}}
+
+### ---------------------------------------------------------------- agent
+
+### 14. Agent login (domain DEF, agent01 / Password1!)
+# @name agent
+POST {{gw}}/api/auth/v1/token/user
+Content-Type: application/json
+
+{ "credentials": { "domain": "DEF", "username": "agent01", "password": "Password1!" } }
+
+### 15. Stateless booking read by record locator (agent only)
+GET {{gw}}/api/nsk/v1/bookings/{{status.response.body.$.data.recordLocator}}
+Authorization: Bearer {{agent.response.body.$.data.token}}
